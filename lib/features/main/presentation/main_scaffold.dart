@@ -7,6 +7,7 @@ class MainScaffold extends StatelessWidget {
   final Widget body;
   final List<Widget>? actions;
   final Widget? floatingActionButton;
+  final bool showNotificationsAction;
 
   const MainScaffold({
     super.key,
@@ -15,12 +16,23 @@ class MainScaffold extends StatelessWidget {
     required this.body,
     this.actions,
     this.floatingActionButton,
+    this.showNotificationsAction = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    final appBarActions = [
+      ...?actions,
+      if (showNotificationsAction)
+        IconButton(
+          tooltip: 'Notificaciones',
+          onPressed: () => context.push('/notifications'),
+          icon: const Icon(Icons.notifications_none_rounded),
+        ),
+    ];
+
     return Scaffold(
-      appBar: AppBar(title: Text(title), actions: actions),
+      appBar: AppBar(title: Text(title), actions: appBarActions),
       body: body,
       floatingActionButton: floatingActionButton,
       bottomNavigationBar: NavigationBar(

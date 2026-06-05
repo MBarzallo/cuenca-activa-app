@@ -5,6 +5,7 @@ import 'package:cuenca_activa_app/features/home/presentation/home_page.dart';
 import 'package:cuenca_activa_app/features/incidents/presentation/incident_detail_page.dart';
 import 'package:cuenca_activa_app/features/incidents/presentation/my_reports_page.dart';
 import 'package:cuenca_activa_app/features/incidents/presentation/report_incident_page.dart';
+import 'package:cuenca_activa_app/features/notifications/presentation/notifications_page.dart';
 import 'package:cuenca_activa_app/features/profile/presentation/profile_page.dart';
 import 'package:go_router/go_router.dart';
 
@@ -38,6 +39,10 @@ class AppRouter {
       GoRoute(
         path: '/profile',
         builder: (context, state) => const ProfilePage(),
+      ),
+      GoRoute(
+        path: '/notifications',
+        builder: (context, state) => const NotificationsPage(),
       ),
     ],
   );

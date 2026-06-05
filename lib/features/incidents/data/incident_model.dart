@@ -71,7 +71,12 @@ class IncidentModel {
     );
   }
 
-  IncidentModel copyWith({List<String>? imagenes}) {
+  IncidentModel copyWith({
+    int? cantidadComentarios,
+    int? cantidadSeguidores,
+    int? cantidadConfirmaciones,
+    List<String>? imagenes,
+  }) {
     return IncidentModel(
       idIncidencia: idIncidencia,
       idUsuarioReporta: idUsuarioReporta,
@@ -88,9 +93,10 @@ class IncidentModel {
       direccionReferencial: direccionReferencial,
       prioridadCalculada: prioridadCalculada,
       cantidadValidaciones: cantidadValidaciones,
-      cantidadComentarios: cantidadComentarios,
-      cantidadSeguidores: cantidadSeguidores,
-      cantidadConfirmaciones: cantidadConfirmaciones,
+      cantidadComentarios: cantidadComentarios ?? this.cantidadComentarios,
+      cantidadSeguidores: cantidadSeguidores ?? this.cantidadSeguidores,
+      cantidadConfirmaciones:
+          cantidadConfirmaciones ?? this.cantidadConfirmaciones,
       fechaReporte: fechaReporte,
       imagenes: imagenes ?? this.imagenes,
     );

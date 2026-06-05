@@ -44,6 +44,10 @@ class DioClient {
     return dio.put<T>(path, data: data, options: _options(token));
   }
 
+  Future<Response<T>> delete<T>(String path, {String? token, Object? data}) {
+    return dio.delete<T>(path, data: data, options: _options(token));
+  }
+
   Options _options(String? token) {
     return Options(
       headers: {
