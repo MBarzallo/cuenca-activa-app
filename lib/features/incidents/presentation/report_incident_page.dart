@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../main/presentation/main_scaffold.dart';
 import '../data/category_model.dart';
+import '../data/incident_image_attachment.dart';
 import '../logic/incidents_cubit.dart';
 import '../logic/incidents_state.dart';
 
@@ -22,8 +25,10 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
   final _addressController = TextEditingController();
   final _latitudeController = TextEditingController();
   final _longitudeController = TextEditingController();
+  final _imagePicker = ImagePicker();
 
   CategoryModel? _selectedCategory;
+  XFile? _selectedImage;
   bool _locating = false;
 
   @override
@@ -105,7 +110,32 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
       latitud: double.parse(_latitudeController.text.trim()),
       longitud: double.parse(_longitudeController.text.trim()),
       direccionReferencial: _addressController.text,
+      imageAttachment: _selectedImage == null
+          ? null
+          : IncidentImageAttachment(_selectedImage!),
     );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 82,
+        maxWidth: 1800,
+      );
+
+      if (image == null) {
+        return;
+      }
+
+      setState(() => _selectedImage = image);
+    } catch (_) {
+      _showMessage('No se pudo seleccionar la imagen.');
+    }
+  }
+
+  void _clearImage() {
+    setState(() => _selectedImage = null);
   }
 
   void _showMessage(String message) {
@@ -136,8 +166,9 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
       builder: (context, state) {
         final submitting = state.submitStatus == IncidentSubmitStatus.loading;
 
-        return Scaffold(
-          appBar: AppBar(title: const Text('Reportar incidencia')),
+        return MainScaffold(
+          currentIndex: 1,
+          title: 'Reportar incidencia',
           body: SafeArea(
             child: SingleChildScrollView(
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -284,6 +315,14 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
                         ),
                       ),
                       const SizedBox(height: 22),
+                      _ImagePickerCard(
+                        selectedImage: _selectedImage,
+                        disabled: submitting,
+                        onCamera: () => _pickImage(ImageSource.camera),
+                        onGallery: () => _pickImage(ImageSource.gallery),
+                        onClear: _clearImage,
+                      ),
+                      const SizedBox(height: 22),
                       FilledButton.icon(
                         onPressed: submitting ? null : _submit,
                         icon: submitting
@@ -405,6 +444,129 @@ class _LoadingCategoriesCard extends StatelessWidget {
             CircularProgressIndicator(strokeWidth: 2),
             SizedBox(height: 14),
             Text('Cargando categorias...'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImagePickerCard extends StatelessWidget {
+  final XFile? selectedImage;
+  final bool disabled;
+  final VoidCallback onCamera;
+  final VoidCallback onGallery;
+  final VoidCallback onClear;
+
+  const _ImagePickerCard({
+    required this.selectedImage,
+    required this.disabled,
+    required this.onCamera,
+    required this.onGallery,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final image = selectedImage;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.teal.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.image_outlined,
+                    color: AppColors.teal,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Imagen del reporte',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'JPG, PNG o WEBP. Máximo 5 MB.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (image == null)
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: disabled ? null : onCamera,
+                      icon: const Icon(Icons.photo_camera_outlined),
+                      label: const Text('Cámara'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: disabled ? null : onGallery,
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('Galería'),
+                    ),
+                  ),
+                ],
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.lightGray),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.check_circle_rounded,
+                      color: AppColors.success,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        image.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Quitar imagen',
+                      onPressed: disabled ? null : onClear,
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

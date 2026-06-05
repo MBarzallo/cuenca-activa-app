@@ -1,5 +1,6 @@
 class IncidentModel {
   final String idIncidencia;
+  final String idUsuarioReporta;
   final String aliasUsuarioReporta;
   final String idCategoria;
   final String codigoCategoria;
@@ -17,9 +18,11 @@ class IncidentModel {
   final int cantidadSeguidores;
   final int cantidadConfirmaciones;
   final DateTime? fechaReporte;
+  final List<String> imagenes;
 
   const IncidentModel({
     required this.idIncidencia,
+    required this.idUsuarioReporta,
     required this.aliasUsuarioReporta,
     required this.idCategoria,
     required this.codigoCategoria,
@@ -37,11 +40,13 @@ class IncidentModel {
     required this.cantidadSeguidores,
     required this.cantidadConfirmaciones,
     required this.fechaReporte,
+    required this.imagenes,
   });
 
   factory IncidentModel.fromJson(Map<String, dynamic> json) {
     return IncidentModel(
       idIncidencia: json['idIncidencia']?.toString() ?? '',
+      idUsuarioReporta: json['idUsuarioReporta']?.toString() ?? '',
       aliasUsuarioReporta: json['aliasUsuarioReporta']?.toString() ?? '',
       idCategoria: json['idCategoria']?.toString() ?? '',
       codigoCategoria: json['codigoCategoria']?.toString() ?? '',
@@ -59,6 +64,35 @@ class IncidentModel {
       cantidadSeguidores: _toInt(json['cantidadSeguidores']),
       cantidadConfirmaciones: _toInt(json['cantidadConfirmaciones']),
       fechaReporte: DateTime.tryParse(json['fechaReporte']?.toString() ?? ''),
+      imagenes: (json['imagenes'] as List<dynamic>? ?? [])
+          .map((image) => image.toString())
+          .where((image) => image.isNotEmpty)
+          .toList(),
+    );
+  }
+
+  IncidentModel copyWith({List<String>? imagenes}) {
+    return IncidentModel(
+      idIncidencia: idIncidencia,
+      idUsuarioReporta: idUsuarioReporta,
+      aliasUsuarioReporta: aliasUsuarioReporta,
+      idCategoria: idCategoria,
+      codigoCategoria: codigoCategoria,
+      nombreCategoria: nombreCategoria,
+      codigoEstado: codigoEstado,
+      nombreEstado: nombreEstado,
+      titulo: titulo,
+      descripcion: descripcion,
+      latitud: latitud,
+      longitud: longitud,
+      direccionReferencial: direccionReferencial,
+      prioridadCalculada: prioridadCalculada,
+      cantidadValidaciones: cantidadValidaciones,
+      cantidadComentarios: cantidadComentarios,
+      cantidadSeguidores: cantidadSeguidores,
+      cantidadConfirmaciones: cantidadConfirmaciones,
+      fechaReporte: fechaReporte,
+      imagenes: imagenes ?? this.imagenes,
     );
   }
 

@@ -1,17 +1,30 @@
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:mime/mime.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 import 'category_model.dart';
+import 'incident_image_attachment.dart';
 import 'incident_model.dart';
+import 'multimedia_model.dart';
 
 class IncidentsRepository {
+  static const firebaseStorageBucket = 'cuenca-activa.firebasestorage.app';
+  static const maxImageSizeBytes = 5 * 1024 * 1024;
+  static const allowedContentTypes = {'image/jpeg', 'image/png', 'image/webp'};
+
   final FirebaseAuth _firebaseAuth;
+  final FirebaseStorage _firebaseStorage;
   final DioClient _dioClient;
 
   IncidentsRepository({FirebaseAuth? firebaseAuth, DioClient? dioClient})
     : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
+      _firebaseStorage = FirebaseStorage.instanceFor(
+        bucket: 'cuenca-activa.firebasestorage.app',
+      ),
       _dioClient = dioClient ?? DioClient();
 
   Future<List<CategoryModel>> getCategories() async {
@@ -45,6 +58,51 @@ class IncidentsRepository {
         .toList();
   }
 
+  Future<List<IncidentModel>> getMyIncidents({
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    final token = await _getIdToken();
+    final response = await _safeRequest(() {
+      return _dioClient.get<List<dynamic>>(
+        '/api/incidencias/mis-reportes',
+        token: token,
+        queryParameters: {'limit': limit, 'offset': offset},
+      );
+    });
+
+    return (response.data ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(IncidentModel.fromJson)
+        .toList();
+  }
+
+  Future<IncidentModel> getIncidentById(String idIncidencia) async {
+    final response = await _safeRequest(() {
+      return _dioClient.get<Map<String, dynamic>>(
+        '/api/incidencias/$idIncidencia',
+      );
+    });
+
+    return IncidentModel.fromJson(response.data ?? {});
+  }
+
+  Future<List<MultimediaModel>> getIncidentMultimedia(
+    String idIncidencia,
+  ) async {
+    final response = await _safeRequest(() {
+      return _dioClient.get<List<dynamic>>(
+        '/api/incidencias/$idIncidencia/multimedia',
+      );
+    });
+
+    return (response.data ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(MultimediaModel.fromJson)
+        .where((media) => media.downloadUrl.isNotEmpty)
+        .toList();
+  }
+
   Future<IncidentModel> createIncident({
     required String idCategoria,
     required String titulo,
@@ -52,6 +110,7 @@ class IncidentsRepository {
     required double latitud,
     required double longitud,
     required String direccionReferencial,
+    IncidentImageAttachment? imageAttachment,
   }) async {
     final token = await _getIdToken();
 
@@ -72,7 +131,139 @@ class IncidentsRepository {
       );
     });
 
-    return IncidentModel.fromJson(response.data ?? {});
+    final incident = IncidentModel.fromJson(response.data ?? {});
+
+    if (imageAttachment == null) {
+      return incident;
+    }
+
+    final multimedia = await _uploadAndRegisterImage(
+      token: token,
+      incident: incident,
+      attachment: imageAttachment,
+    );
+
+    return incident.copyWith(imagenes: [multimedia.downloadUrl]);
+  }
+
+  Future<MultimediaModel> _uploadAndRegisterImage({
+    required String token,
+    required IncidentModel incident,
+    required IncidentImageAttachment attachment,
+  }) async {
+    final user = _firebaseAuth.currentUser;
+
+    if (user == null) {
+      throw ApiException(
+        statusCode: 401,
+        code: 'NO_FIREBASE_SESSION',
+        message: 'Inicia sesion para subir imagenes.',
+      );
+    }
+
+    final bytes = await attachment.file.readAsBytes();
+    if (bytes.isEmpty) {
+      throw ApiException(
+        statusCode: 400,
+        code: 'ARCHIVO_VACIO',
+        message: 'La imagen seleccionada está vacía.',
+      );
+    }
+
+    if (bytes.length > maxImageSizeBytes) {
+      throw ApiException(
+        statusCode: 400,
+        code: 'ARCHIVO_DEMASIADO_GRANDE',
+        message: 'La imagen no debe superar 5 MB.',
+      );
+    }
+
+    final contentType =
+        lookupMimeType(attachment.file.path, headerBytes: bytes) ??
+        attachment.file.mimeType ??
+        'application/octet-stream';
+
+    if (!allowedContentTypes.contains(contentType)) {
+      throw ApiException(
+        statusCode: 400,
+        code: 'CONTENT_TYPE_NO_PERMITIDO',
+        message: 'Solo se permiten imágenes JPG, PNG o WEBP.',
+      );
+    }
+
+    final fileName = _buildSafeFileName(attachment.file.name, contentType);
+    final storagePath =
+        'incidencias/${incident.idIncidencia}/${user.uid}/$fileName';
+    final reference = _firebaseStorage.ref(storagePath);
+    final uploadTask = await reference.putData(
+      bytes,
+      SettableMetadata(
+        contentType: contentType,
+        customMetadata: {
+          'idIncidencia': incident.idIncidencia,
+          'firebaseUid': user.uid,
+        },
+      ),
+    );
+    final metadata = await uploadTask.ref.getMetadata();
+    final downloadUrl = await uploadTask.ref.getDownloadURL();
+
+    return _registerMultimediaMetadata(
+      token: token,
+      idIncidencia: incident.idIncidencia,
+      bucket: firebaseStorageBucket,
+      storagePath: storagePath,
+      downloadUrl: downloadUrl,
+      contentType: metadata.contentType ?? contentType,
+      sizeBytes: metadata.size ?? bytes.length,
+      nombreArchivo: fileName,
+    );
+  }
+
+  Future<MultimediaModel> _registerMultimediaMetadata({
+    required String token,
+    required String idIncidencia,
+    required String bucket,
+    required String storagePath,
+    required String downloadUrl,
+    required String contentType,
+    required int sizeBytes,
+    required String nombreArchivo,
+  }) async {
+    final response = await _safeRequest(() {
+      return _dioClient.post<Map<String, dynamic>>(
+        '/api/incidencias/$idIncidencia/multimedia',
+        token: token,
+        data: {
+          'bucket': bucket,
+          'storagePath': storagePath,
+          'downloadUrl': downloadUrl,
+          'contentType': contentType,
+          'sizeBytes': sizeBytes,
+          'nombreArchivo': nombreArchivo,
+          'ordenVisualizacion': 0,
+          'esPrincipal': true,
+        },
+      );
+    });
+
+    return MultimediaModel.fromJson(response.data ?? {});
+  }
+
+  String _buildSafeFileName(String originalName, String contentType) {
+    final extension = switch (contentType) {
+      'image/png' => '.png',
+      'image/webp' => '.webp',
+      _ => '.jpg',
+    };
+    final baseName = p.basenameWithoutExtension(originalName).trim();
+    final safeBaseName = baseName
+        .replaceAll(RegExp(r'[^a-zA-Z0-9._-]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    final timestamp = DateTime.now().microsecondsSinceEpoch;
+
+    return '${timestamp}_${safeBaseName.isEmpty ? 'incidencia' : safeBaseName}$extension';
   }
 
   Future<String> _getIdToken() async {

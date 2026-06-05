@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../data/category_model.dart';
 import '../data/incident_model.dart';
+import '../data/multimedia_model.dart';
 
 enum IncidentSubmitStatus { initial, loading, success, failure }
 
@@ -12,6 +13,13 @@ class IncidentsState extends Equatable {
   final String? errorMessage;
   final IncidentSubmitStatus submitStatus;
   final String? submitMessage;
+  final bool detailLoading;
+  final IncidentModel? selectedIncident;
+  final List<MultimediaModel> selectedIncidentMultimedia;
+  final String? detailErrorMessage;
+  final bool myReportsLoading;
+  final List<IncidentModel> myReports;
+  final String? myReportsErrorMessage;
 
   const IncidentsState({
     required this.loading,
@@ -20,6 +28,13 @@ class IncidentsState extends Equatable {
     required this.errorMessage,
     required this.submitStatus,
     required this.submitMessage,
+    required this.detailLoading,
+    required this.selectedIncident,
+    required this.selectedIncidentMultimedia,
+    required this.detailErrorMessage,
+    required this.myReportsLoading,
+    required this.myReports,
+    required this.myReportsErrorMessage,
   });
 
   const IncidentsState.initial()
@@ -28,7 +43,14 @@ class IncidentsState extends Equatable {
       incidents = const [],
       errorMessage = null,
       submitStatus = IncidentSubmitStatus.initial,
-      submitMessage = null;
+      submitMessage = null,
+      detailLoading = false,
+      selectedIncident = null,
+      selectedIncidentMultimedia = const [],
+      detailErrorMessage = null,
+      myReportsLoading = false,
+      myReports = const [],
+      myReportsErrorMessage = null;
 
   IncidentsState copyWith({
     bool? loading,
@@ -39,6 +61,16 @@ class IncidentsState extends Equatable {
     IncidentSubmitStatus? submitStatus,
     String? submitMessage,
     bool clearSubmitMessage = false,
+    bool? detailLoading,
+    IncidentModel? selectedIncident,
+    List<MultimediaModel>? selectedIncidentMultimedia,
+    String? detailErrorMessage,
+    bool clearDetailError = false,
+    bool clearSelectedIncident = false,
+    bool? myReportsLoading,
+    List<IncidentModel>? myReports,
+    String? myReportsErrorMessage,
+    bool clearMyReportsError = false,
   }) {
     return IncidentsState(
       loading: loading ?? this.loading,
@@ -49,6 +81,20 @@ class IncidentsState extends Equatable {
       submitMessage: clearSubmitMessage
           ? null
           : submitMessage ?? this.submitMessage,
+      detailLoading: detailLoading ?? this.detailLoading,
+      selectedIncident: clearSelectedIncident
+          ? null
+          : selectedIncident ?? this.selectedIncident,
+      selectedIncidentMultimedia:
+          selectedIncidentMultimedia ?? this.selectedIncidentMultimedia,
+      detailErrorMessage: clearDetailError
+          ? null
+          : detailErrorMessage ?? this.detailErrorMessage,
+      myReportsLoading: myReportsLoading ?? this.myReportsLoading,
+      myReports: myReports ?? this.myReports,
+      myReportsErrorMessage: clearMyReportsError
+          ? null
+          : myReportsErrorMessage ?? this.myReportsErrorMessage,
     );
   }
 
@@ -60,5 +106,12 @@ class IncidentsState extends Equatable {
     errorMessage,
     submitStatus,
     submitMessage,
+    detailLoading,
+    selectedIncident,
+    selectedIncidentMultimedia,
+    detailErrorMessage,
+    myReportsLoading,
+    myReports,
+    myReportsErrorMessage,
   ];
 }

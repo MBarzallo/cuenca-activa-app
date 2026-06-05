@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../data/incident_image_attachment.dart';
 import '../data/incidents_repository.dart';
 import 'incidents_state.dart';
 
@@ -58,6 +59,35 @@ class IncidentsCubit extends Cubit<IncidentsState> {
     }
   }
 
+  Future<void> loadMyReports() async {
+    emit(state.copyWith(myReportsLoading: true, clearMyReportsError: true));
+
+    try {
+      final reports = await _repository.getMyIncidents();
+      emit(
+        state.copyWith(
+          myReportsLoading: false,
+          myReports: reports,
+          clearMyReportsError: true,
+        ),
+      );
+    } on ApiException catch (error) {
+      emit(
+        state.copyWith(
+          myReportsLoading: false,
+          myReportsErrorMessage: error.message,
+        ),
+      );
+    } catch (_) {
+      emit(
+        state.copyWith(
+          myReportsLoading: false,
+          myReportsErrorMessage: 'No se pudieron cargar tus reportes.',
+        ),
+      );
+    }
+  }
+
   Future<void> createIncident({
     required String idCategoria,
     required String titulo,
@@ -65,6 +95,7 @@ class IncidentsCubit extends Cubit<IncidentsState> {
     required double latitud,
     required double longitud,
     required String direccionReferencial,
+    IncidentImageAttachment? imageAttachment,
   }) async {
     emit(
       state.copyWith(
@@ -81,11 +112,13 @@ class IncidentsCubit extends Cubit<IncidentsState> {
         latitud: latitud,
         longitud: longitud,
         direccionReferencial: direccionReferencial,
+        imageAttachment: imageAttachment,
       );
 
       emit(
         state.copyWith(
           incidents: [incident, ...state.incidents],
+          myReports: [incident, ...state.myReports],
           submitStatus: IncidentSubmitStatus.success,
           submitMessage: 'Tu incidencia fue reportada correctamente.',
         ),
@@ -114,5 +147,45 @@ class IncidentsCubit extends Cubit<IncidentsState> {
         clearSubmitMessage: true,
       ),
     );
+  }
+
+  Future<void> loadIncidentDetail(String idIncidencia) async {
+    emit(
+      state.copyWith(
+        detailLoading: true,
+        clearDetailError: true,
+        clearSelectedIncident: true,
+        selectedIncidentMultimedia: const [],
+      ),
+    );
+
+    try {
+      final incident = await _repository.getIncidentById(idIncidencia);
+      final multimedia = await _repository.getIncidentMultimedia(idIncidencia);
+      final imageUrls = multimedia
+          .map((media) => media.downloadUrl)
+          .where((url) => url.isNotEmpty)
+          .toList();
+
+      emit(
+        state.copyWith(
+          detailLoading: false,
+          selectedIncident: incident.copyWith(imagenes: imageUrls),
+          selectedIncidentMultimedia: multimedia,
+          clearDetailError: true,
+        ),
+      );
+    } on ApiException catch (error) {
+      emit(
+        state.copyWith(detailLoading: false, detailErrorMessage: error.message),
+      );
+    } catch (_) {
+      emit(
+        state.copyWith(
+          detailLoading: false,
+          detailErrorMessage: 'No se pudo cargar el detalle de la incidencia.',
+        ),
+      );
+    }
   }
 }

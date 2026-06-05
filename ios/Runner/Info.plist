@@ -51,6 +51,10 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Cuenca Activa usa tu ubicacion para registrar el punto exacto de una incidencia ciudadana.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Cuenca Activa usa la camara para adjuntar imagenes a una incidencia ciudadana.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Cuenca Activa accede a tus fotos para adjuntar una imagen a una incidencia ciudadana.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
