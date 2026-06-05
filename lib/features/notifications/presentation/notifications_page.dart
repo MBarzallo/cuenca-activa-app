@@ -313,35 +313,122 @@ class _PreferencesSection extends StatelessWidget {
   }
 }
 
-class _PreferenceSwitch extends StatelessWidget {
+class _PreferenceSwitch extends StatefulWidget {
   final NotificationPreferenceModel preference;
 
   const _PreferenceSwitch({required this.preference});
 
   @override
+  State<_PreferenceSwitch> createState() => _PreferenceSwitchState();
+}
+
+class _PreferenceSwitchState extends State<_PreferenceSwitch> {
+  late double _radio;
+
+  @override
+  void initState() {
+    super.initState();
+    _radio = _normalizeRadio(widget.preference.radioCercaniaKm);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PreferenceSwitch oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.preference.radioCercaniaKm !=
+        widget.preference.radioCercaniaKm) {
+      _radio = _normalizeRadio(widget.preference.radioCercaniaKm);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SwitchListTile(
-      contentPadding: EdgeInsets.zero,
-      value: preference.habilitada,
-      title: Text(
-        preference.nombreTipo,
-        style: Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
-      ),
-      subtitle: preference.codigoTipo == 'INCIDENCIA_CERCANA'
-          ? Text(
-              'Radio: ${preference.radioCercaniaKm?.toStringAsFixed(1) ?? '2.0'} km',
-            )
-          : null,
-      onChanged: (value) {
-        context.read<NotificationsCubit>().updatePreference(
-          codigoTipo: preference.codigoTipo,
-          habilitada: value,
-          radioCercaniaKm: preference.radioCercaniaKm,
-        );
-      },
+    final state = context.watch<NotificationsCubit>().state;
+    final preference = widget.preference;
+    final isNearby = preference.codigoTipo == 'INCIDENCIA_CERCANA';
+    final disabled = state.actionLoading;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: preference.habilitada,
+          title: Text(
+            preference.nombreTipo,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          subtitle: isNearby
+              ? Text('Radio: ${_radio.toStringAsFixed(1)} km')
+              : null,
+          onChanged: disabled
+              ? null
+              : (value) {
+                  context.read<NotificationsCubit>().updatePreference(
+                    codigoTipo: preference.codigoTipo,
+                    habilitada: value,
+                    radioCercaniaKm: _radio,
+                  );
+                },
+        ),
+        if (isNearby) ...[
+          Slider(
+            min: 0.5,
+            max: 20,
+            divisions: 39,
+            value: _radio,
+            label: '${_radio.toStringAsFixed(1)} km',
+            onChanged: preference.habilitada && !disabled
+                ? (value) => setState(() => _radio = value)
+                : null,
+            onChangeEnd: preference.habilitada && !disabled
+                ? (value) {
+                    context.read<NotificationsCubit>().updatePreference(
+                      codigoTipo: preference.codigoTipo,
+                      habilitada: preference.habilitada,
+                      radioCercaniaKm: value,
+                    );
+                  }
+                : null,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
+            child: Row(
+              children: [
+                Text(
+                  '0.5 km',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '20 km',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, right: 4, bottom: 12),
+            child: Text(
+              'Este rango se usa para el mapa y las alertas de incidencias cercanas.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
+  }
+
+  double _normalizeRadio(double? value) {
+    return (value ?? 2.0).clamp(0.5, 20).toDouble();
   }
 }
 

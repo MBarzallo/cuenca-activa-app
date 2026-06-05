@@ -2,6 +2,7 @@ class IncidentVoteModel {
   final String idVoto;
   final String idIncidencia;
   final String idUsuario;
+  final String aliasUsuario;
   final String tipoVoto;
   final String? observacion;
   final DateTime? creadoEn;
@@ -10,6 +11,7 @@ class IncidentVoteModel {
     required this.idVoto,
     required this.idIncidencia,
     required this.idUsuario,
+    required this.aliasUsuario,
     required this.tipoVoto,
     required this.observacion,
     required this.creadoEn,
@@ -20,6 +22,7 @@ class IncidentVoteModel {
       idVoto: json['idVoto']?.toString() ?? '',
       idIncidencia: json['idIncidencia']?.toString() ?? '',
       idUsuario: json['idUsuario']?.toString() ?? '',
+      aliasUsuario: json['aliasUsuario']?.toString() ?? '',
       tipoVoto: json['tipoVoto']?.toString() ?? '',
       observacion: json['observacion']?.toString(),
       creadoEn: DateTime.tryParse(json['creadoEn']?.toString() ?? ''),

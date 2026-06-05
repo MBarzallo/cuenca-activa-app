@@ -7,13 +7,18 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../auth/logic/auth_cubit.dart';
+import '../../auth/logic/auth_state.dart';
 import '../../home/presentation/widgets/home_shared_widgets.dart';
 import '../../main/presentation/main_scaffold.dart';
 import '../data/incident_comment_model.dart';
 import '../data/incident_completion_confirmation_model.dart';
 import '../data/incident_image_attachment.dart';
 import '../data/incident_model.dart';
+import '../data/incident_status_history_model.dart';
+import '../data/incident_status_option_model.dart';
 import '../data/incident_vote_model.dart';
+import '../data/multimedia_model.dart';
 import '../logic/incidents_cubit.dart';
 import '../logic/incidents_state.dart';
 
@@ -42,7 +47,19 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
       title: 'Detalle',
       body: SafeArea(
         bottom: false,
-        child: BlocBuilder<IncidentsCubit, IncidentsState>(
+        child: BlocConsumer<IncidentsCubit, IncidentsState>(
+          listenWhen: (previous, current) =>
+              previous.statusChangeMessage != current.statusChangeMessage ||
+              previous.contentReportMessage != current.contentReportMessage,
+          listener: (context, state) {
+            final message =
+                state.statusChangeMessage ?? state.contentReportMessage;
+            if (message != null && message.isNotEmpty) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(message)));
+            }
+          },
           builder: (context, state) {
             if (state.detailLoading) {
               return const _DetailLoadingView();
@@ -77,7 +94,10 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
               );
             }
 
-            return _IncidentDetailContent(incident: incident);
+            return _IncidentDetailContent(
+              incident: incident,
+              multimedia: state.selectedIncidentMultimedia,
+            );
           },
         ),
       ),
@@ -87,11 +107,23 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
 class _IncidentDetailContent extends StatelessWidget {
   final IncidentModel incident;
+  final List<MultimediaModel> multimedia;
 
-  const _IncidentDetailContent({required this.incident});
+  const _IncidentDetailContent({
+    required this.incident,
+    required this.multimedia,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final authState = context.watch<AuthCubit>().state;
+    final currentUserId = authState is AuthAuthenticated
+        ? authState.user.idUsuario
+        : '';
+    final isOwner =
+        currentUserId.isNotEmpty && currentUserId == incident.idUsuarioReporta;
+    print("por aqui el error");
+    print(isOwner);
     final date = incident.fechaReporte;
     final formattedDate = date == null
         ? 'Fecha no disponible'
@@ -100,7 +132,7 @@ class _IncidentDetailContent extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
       children: [
-        _ImageGallery(images: incident.imagenes),
+        _ImageGallery(images: incident.imagenes, multimedia: multimedia),
         const SizedBox(height: 16),
         Card(
           child: Padding(
@@ -175,16 +207,32 @@ class _IncidentDetailContent extends StatelessWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 14),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _ReportContentButton(
+                    label: 'Denunciar reporte',
+                    tipoEntidad: 'INCIDENCIA',
+                    idEntidad: incident.idIncidencia,
+                    title: 'Denunciar incidencia',
+                  ),
+                ),
               ],
             ),
           ),
         ),
         const SizedBox(height: 14),
         _MetricsSection(incident: incident),
+        if (isOwner) ...[
+          const SizedBox(height: 14),
+          _OwnerStatusAction(incident: incident),
+        ],
+        const SizedBox(height: 14),
+        _StatusHistorySection(idIncidencia: incident.idIncidencia),
         const SizedBox(height: 14),
         _FollowSection(incident: incident),
         const SizedBox(height: 14),
-        _VoteSection(idIncidencia: incident.idIncidencia),
+        _VoteSection(incident: incident),
         const SizedBox(height: 14),
         _CompletionSection(incident: incident),
         const SizedBox(height: 14),
@@ -198,8 +246,9 @@ class _IncidentDetailContent extends StatelessWidget {
 
 class _ImageGallery extends StatelessWidget {
   final List<String> images;
+  final List<MultimediaModel> multimedia;
 
-  const _ImageGallery({required this.images});
+  const _ImageGallery({required this.images, required this.multimedia});
 
   @override
   Widget build(BuildContext context) {
@@ -240,35 +289,57 @@ class _ImageGallery extends StatelessWidget {
       );
     }
 
+    final mediaItems = multimedia
+        .where((media) => media.downloadUrl.isNotEmpty)
+        .toList();
+    final itemCount = mediaItems.isNotEmpty ? mediaItems.length : images.length;
+
     return SizedBox(
       height: 220,
       child: PageView.builder(
-        itemCount: images.length,
+        itemCount: itemCount,
         itemBuilder: (context, index) {
+          final media = mediaItems.isNotEmpty ? mediaItems[index] : null;
+          final imageUrl = media?.downloadUrl ?? images[index];
+
           return Padding(
-            padding: EdgeInsets.only(
-              right: index == images.length - 1 ? 0 : 10,
-            ),
+            padding: EdgeInsets.only(right: index == itemCount - 1 ? 0 : 10),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(26),
-              child: CachedNetworkImage(
-                imageUrl: images[index],
-                fit: BoxFit.cover,
-                placeholder: (context, url) => Container(
-                  color: AppColors.lightGray,
-                  child: const Center(
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-                errorWidget: (context, url, error) => Container(
-                  color: AppColors.navy,
-                  child: const Center(
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      color: AppColors.gold,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CachedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      color: AppColors.lightGray,
+                      child: const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                    errorWidget: (context, url, error) => Container(
+                      color: AppColors.navy,
+                      child: const Center(
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: AppColors.gold,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  if (media != null)
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: _ReportIconButton(
+                        tooltip: 'Denunciar imagen',
+                        tipoEntidad: 'MULTIMEDIA',
+                        idEntidad: media.idMultimedia,
+                        title: 'Denunciar imagen',
+                      ),
+                    ),
+                ],
               ),
             ),
           );
@@ -276,6 +347,269 @@ class _ImageGallery extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ReportContentButton extends StatelessWidget {
+  final String label;
+  final String tipoEntidad;
+  final String idEntidad;
+  final String title;
+
+  const _ReportContentButton({
+    required this.label,
+    required this.tipoEntidad,
+    required this.idEntidad,
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: () => _showReportContentSheet(
+        context,
+        tipoEntidad: tipoEntidad,
+        idEntidad: idEntidad,
+        title: title,
+      ),
+      icon: const Icon(Icons.flag_outlined, size: 18),
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.danger,
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+}
+
+class _ReportIconButton extends StatelessWidget {
+  final String tooltip;
+  final String tipoEntidad;
+  final String idEntidad;
+  final String title;
+
+  const _ReportIconButton({
+    required this.tooltip,
+    required this.tipoEntidad,
+    required this.idEntidad,
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.navy.withValues(alpha: 0.72),
+      borderRadius: BorderRadius.circular(999),
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: () => _showReportContentSheet(
+          context,
+          tipoEntidad: tipoEntidad,
+          idEntidad: idEntidad,
+          title: title,
+        ),
+        icon: const Icon(Icons.flag_outlined),
+        color: AppColors.white,
+        iconSize: 18,
+        constraints: const BoxConstraints.tightFor(width: 38, height: 38),
+      ),
+    );
+  }
+}
+
+Future<void> _showReportContentSheet(
+  BuildContext context, {
+  required String tipoEntidad,
+  required String idEntidad,
+  required String title,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => BlocProvider.value(
+      value: context.read<IncidentsCubit>(),
+      child: _ReportContentSheet(
+        tipoEntidad: tipoEntidad,
+        idEntidad: idEntidad,
+        title: title,
+      ),
+    ),
+  );
+}
+
+class _ReportContentSheet extends StatefulWidget {
+  final String tipoEntidad;
+  final String idEntidad;
+  final String title;
+
+  const _ReportContentSheet({
+    required this.tipoEntidad,
+    required this.idEntidad,
+    required this.title,
+  });
+
+  @override
+  State<_ReportContentSheet> createState() => _ReportContentSheetState();
+}
+
+class _ReportContentSheetState extends State<_ReportContentSheet> {
+  static const _motivos = [
+    'Contenido inapropiado',
+    'Información falsa',
+    'Spam o publicidad',
+    'Riesgo para la comunidad',
+    'Otro',
+  ];
+
+  final _detalleController = TextEditingController();
+  String _motivo = _motivos.first;
+
+  @override
+  void dispose() {
+    _detalleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: BlocBuilder<IncidentsCubit, IncidentsState>(
+          builder: (context, state) {
+            final submitting = state.contentReportSubmitting;
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGray,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.danger.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.flag_outlined,
+                        color: AppColors.danger,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.title,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: _motivo,
+                  decoration: const InputDecoration(
+                    labelText: 'Motivo',
+                    prefixIcon: Icon(Icons.error_outline_rounded),
+                  ),
+                  items: _motivos
+                      .map(
+                        (motivo) => DropdownMenuItem(
+                          value: motivo,
+                          child: Text(motivo),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: submitting
+                      ? null
+                      : (value) => setState(() {
+                          _motivo = value ?? _motivos.first;
+                        }),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _detalleController,
+                  enabled: !submitting,
+                  minLines: 3,
+                  maxLines: 5,
+                  maxLength: 1000,
+                  decoration: const InputDecoration(
+                    labelText: 'Detalle opcional',
+                    alignLabelWithHint: true,
+                    prefixIcon: Icon(Icons.notes_outlined),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: submitting ? null : _submit,
+                    icon: submitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send_outlined),
+                    label: Text(submitting ? 'Enviando...' : 'Enviar denuncia'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: AppColors.white,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    final success = await context.read<IncidentsCubit>().reportContent(
+      tipoEntidad: widget.tipoEntidad,
+      idEntidad: widget.idEntidad,
+      motivo: _motivo,
+      detalle: _detalleController.text,
+    );
+
+    if (success && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+}
+
+bool _isFinalIncidentState(IncidentModel incident) {
+  final normalized = '${incident.codigoEstado} ${incident.nombreEstado}'
+      .toUpperCase();
+
+  return normalized.contains('CERR') ||
+      normalized.contains('FINAL') ||
+      normalized.contains('RESUEL') ||
+      normalized.contains('SOLUCION');
 }
 
 class _MetricsSection extends StatelessWidget {
@@ -358,6 +692,505 @@ class _MetricCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _OwnerStatusAction extends StatelessWidget {
+  final IncidentModel incident;
+
+  const _OwnerStatusAction({required this.incident});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<IncidentsCubit, IncidentsState>(
+      builder: (context, state) {
+        final availableStatuses = state.statusOptions
+            .where((status) => status.codigo != incident.codigoEstado)
+            .toList();
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: AppColors.gold.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Icon(
+                        Icons.edit_road_rounded,
+                        color: AppColors.gold,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Gestionar estado',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Como propietario puedes actualizar el avance de tu reporte.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.textSecondary,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed:
+                    state.statusOptionsLoading ||
+                        state.statusChanging ||
+                        availableStatuses.isEmpty
+                        ? null
+                        : () => _showChangeStatusSheet(
+                      context,
+                      incident,
+                      availableStatuses,
+                    ),
+                    icon: state.statusChanging
+                        ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                        : const Icon(Icons.sync_alt_rounded),
+                    label: const Text('Cambiar'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showChangeStatusSheet(
+    BuildContext context,
+    IncidentModel incident,
+    List<IncidentStatusOptionModel> statuses,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) {
+        return BlocProvider.value(
+          value: context.read<IncidentsCubit>(),
+          child: _ChangeStatusSheet(incident: incident, statuses: statuses),
+        );
+      },
+    );
+  }
+}
+
+class _ChangeStatusSheet extends StatefulWidget {
+  final IncidentModel incident;
+  final List<IncidentStatusOptionModel> statuses;
+
+  const _ChangeStatusSheet({required this.incident, required this.statuses});
+
+  @override
+  State<_ChangeStatusSheet> createState() => _ChangeStatusSheetState();
+}
+
+class _ChangeStatusSheetState extends State<_ChangeStatusSheet> {
+  final TextEditingController _observationController = TextEditingController();
+  String? _selectedStatusCode;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedStatusCode = widget.statuses.isEmpty
+        ? null
+        : widget.statuses.first.codigo;
+  }
+
+  @override
+  void dispose() {
+    _observationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 20),
+      child: BlocBuilder<IncidentsCubit, IncidentsState>(
+        builder: (context, state) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGray,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Cambiar estado',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                widget.incident.titulo,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 18),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedStatusCode,
+                decoration: const InputDecoration(
+                  labelText: 'Nuevo estado',
+                  prefixIcon: Icon(Icons.flag_outlined),
+                ),
+                items: widget.statuses.map((status) {
+                  return DropdownMenuItem<String>(
+                    value: status.codigo,
+                    child: Text(status.nombre),
+                  );
+                }).toList(),
+                onChanged: state.statusChanging
+                    ? null
+                    : (value) => setState(() => _selectedStatusCode = value),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _observationController,
+                enabled: !state.statusChanging,
+                maxLines: 3,
+                maxLength: 500,
+                decoration: const InputDecoration(
+                  labelText: 'Observación opcional',
+                  hintText: 'Ej. Ya fue atendido parcialmente',
+                  prefixIcon: Icon(Icons.notes_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: state.statusChanging || _selectedStatusCode == null
+                    ? null
+                    : () async {
+                        await context
+                            .read<IncidentsCubit>()
+                            .changeIncidentStatus(
+                              idIncidencia: widget.incident.idIncidencia,
+                              codigoEstado: _selectedStatusCode!,
+                              observacion: _observationController.text,
+                            );
+
+                        if (context.mounted) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                icon: state.statusChanging
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_rounded),
+                label: const Text('Guardar estado'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _StatusHistorySection extends StatelessWidget {
+  final String idIncidencia;
+
+  const _StatusHistorySection({required this.idIncidencia});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<IncidentsCubit, IncidentsState>(
+      builder: (context, state) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.teal.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: const Icon(
+                        Icons.timeline_rounded,
+                        color: AppColors.teal,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Historial de estado',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Actualizar historial',
+                      onPressed: state.statusHistoryLoading
+                          ? null
+                          : () => context
+                                .read<IncidentsCubit>()
+                                .refreshIncidentStatusHistory(idIncidencia),
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (state.statusHistoryLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 18),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (state.statusHistoryErrorMessage != null)
+                  _InlineErrorState(
+                    message: state.statusHistoryErrorMessage!,
+                    onRetry: () => context
+                        .read<IncidentsCubit>()
+                        .refreshIncidentStatusHistory(idIncidencia),
+                  )
+                else if (state.statusHistory.isEmpty)
+                  const _InlineEmptyState(
+                    icon: Icons.history_toggle_off_rounded,
+                    message: 'Todavía no hay cambios de estado registrados.',
+                  )
+                else
+                  ...state.statusHistory.map((item) {
+                    final isLast = item == state.statusHistory.last;
+                    return _StatusHistoryItem(item: item, isLast: isLast);
+                  }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _StatusHistoryItem extends StatelessWidget {
+  final IncidentStatusHistoryModel item;
+  final bool isLast;
+
+  const _StatusHistoryItem({required this.item, required this.isLast});
+
+  @override
+  Widget build(BuildContext context) {
+    final date = item.cambiadoEn == null
+        ? 'Fecha no disponible'
+        : DateFormat('dd MMM yyyy, HH:mm').format(item.cambiadoEn!.toLocal());
+    final actor = item.aliasUsuarioAccion.isEmpty
+        ? 'Sistema'
+        : '@${item.aliasUsuarioAccion}';
+    final previous = item.nombreEstadoAnterior.isEmpty
+        ? 'Inicio'
+        : item.nombreEstadoAnterior;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Column(
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: const BoxDecoration(
+                color: AppColors.teal,
+                shape: BoxShape.circle,
+              ),
+            ),
+            if (!isLast)
+              Container(width: 2, height: 74, color: AppColors.lightGray),
+          ],
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$previous → ${item.nombreEstadoNuevo}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$actor · $date',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.teal.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      _historyOriginLabel(item.origenCambio),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AppColors.teal,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+                if (item.observacion.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    item.observacion,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InlineErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _InlineErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.danger.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.danger.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: AppColors.danger),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.3,
+              ),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Reintentar')),
+        ],
+      ),
+    );
+  }
+}
+
+String _historyOriginLabel(String origin) {
+  return switch (origin.toUpperCase()) {
+    'CREACION' => 'Creación',
+    'CIUDADANO' => 'Ciudadano',
+    'ADMINISTRACION' => 'Administración',
+    'MANUAL' => 'Manual',
+    'SISTEMA' => 'Sistema',
+    _ => origin.isEmpty ? 'Cambio' : origin,
+  };
+}
+
+class _InlineEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _InlineEmptyState({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.lightGray),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -543,6 +1376,7 @@ class _CompletionSectionState extends State<_CompletionSection> {
             state.completionSummary ??
             const IncidentCompletionSummaryModel.empty();
         final userConfirmation = summary.confirmacionUsuario;
+        final isFinalState = _isFinalIncidentState(widget.incident);
 
         return Card(
           child: Padding(
@@ -616,24 +1450,39 @@ class _CompletionSectionState extends State<_CompletionSection> {
                           widget.incident.idIncidencia,
                         ),
                   )
-                else if (summary.usuarioYaConfirmo && userConfirmation != null)
-                  _AlreadyConfirmedState(confirmation: userConfirmation)
-                else
-                  _CompletionComposer(
-                    observationController: _observationController,
-                    latitude: _latitude,
-                    longitude: _longitude,
-                    selectedImage: _selectedImage,
-                    locating: _locating,
-                    submitting: state.completionSubmitting,
-                    errorMessage: state.completionSubmitMessage,
-                    onUseLocation: _useCurrentLocation,
-                    onClearLocation: _clearLocation,
-                    onPickCamera: () => _pickImage(ImageSource.camera),
-                    onPickGallery: () => _pickImage(ImageSource.gallery),
-                    onClearImage: _clearImage,
-                    onSubmit: _submitConfirmation,
-                  ),
+                else ...[
+                  if (isFinalState)
+                    const _InlineEmptyState(
+                      icon: Icons.verified_rounded,
+                      message:
+                          'La incidencia ya está en un estado final. Las confirmaciones quedan como historial.',
+                    )
+                  else if (summary.usuarioYaConfirmo &&
+                      userConfirmation != null)
+                    _AlreadyConfirmedState(confirmation: userConfirmation)
+                  else
+                    _CompletionComposer(
+                      observationController: _observationController,
+                      latitude: _latitude,
+                      longitude: _longitude,
+                      selectedImage: _selectedImage,
+                      locating: _locating,
+                      submitting: state.completionSubmitting,
+                      errorMessage: state.completionSubmitMessage,
+                      onUseLocation: _useCurrentLocation,
+                      onClearLocation: _clearLocation,
+                      onPickCamera: () => _pickImage(ImageSource.camera),
+                      onPickGallery: () => _pickImage(ImageSource.gallery),
+                      onClearImage: _clearImage,
+                      onSubmit: _submitConfirmation,
+                    ),
+                  if (state.recentConfirmations.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _RecentConfirmationsList(
+                      confirmations: state.recentConfirmations,
+                    ),
+                  ],
+                ],
               ],
             ),
           ),
@@ -879,6 +1728,162 @@ class _CompletionImagePicker extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RecentConfirmationsList extends StatelessWidget {
+  final List<IncidentCompletionConfirmationDetailModel> confirmations;
+
+  const _RecentConfirmationsList({required this.confirmations});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Confirmaciones recientes',
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 10),
+        ...confirmations.map((confirmation) {
+          return _ConfirmationDetailCard(confirmation: confirmation);
+        }),
+      ],
+    );
+  }
+}
+
+class _ConfirmationDetailCard extends StatelessWidget {
+  final IncidentCompletionConfirmationDetailModel confirmation;
+
+  const _ConfirmationDetailCard({required this.confirmation});
+
+  @override
+  Widget build(BuildContext context) {
+    final date = confirmation.creadoEn == null
+        ? 'Fecha no disponible'
+        : DateFormat('dd MMM, HH:mm').format(confirmation.creadoEn!.toLocal());
+    final observation = (confirmation.observacion ?? '').trim();
+    final alias = confirmation.aliasUsuario.isEmpty
+        ? 'Ciudadano'
+        : '@${confirmation.aliasUsuario}';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.lightGray),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_outlined, color: AppColors.success),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$alias · $date',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _ReportIconButton(
+                tooltip: 'Denunciar confirmación',
+                tipoEntidad: 'CONFIRMACION',
+                idEntidad: confirmation.idConfirmacion,
+                title: 'Denunciar confirmación',
+              ),
+            ],
+          ),
+          if (observation.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              observation,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.35,
+              ),
+            ),
+          ],
+          if (confirmation.hasLocation) ...[
+            const SizedBox(height: 8),
+            _DetailRow(
+              icon: Icons.location_on_outlined,
+              text:
+                  '${confirmation.latitud!.toStringAsFixed(6)}, ${confirmation.longitud!.toStringAsFixed(6)}',
+            ),
+          ],
+          if (confirmation.multimedia.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 78,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: confirmation.multimedia.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final media = confirmation.multimedia[index];
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      width: 96,
+                      height: 78,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CachedNetworkImage(
+                            imageUrl: media.downloadUrl,
+                            fit: BoxFit.cover,
+                            placeholder: (_, _) => Container(
+                              color: AppColors.lightGray,
+                              child: const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ),
+                            errorWidget: (_, _, _) => Container(
+                              color: AppColors.navy,
+                              child: const Icon(
+                                Icons.broken_image_outlined,
+                                color: AppColors.gold,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: _ReportIconButton(
+                              tooltip: 'Denunciar evidencia',
+                              tipoEntidad: 'MULTIMEDIA',
+                              idEntidad: media.idMultimedia,
+                              title: 'Denunciar evidencia',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
           ],
         ],
@@ -1174,9 +2179,9 @@ class _FollowErrorState extends StatelessWidget {
 }
 
 class _VoteSection extends StatefulWidget {
-  final String idIncidencia;
+  final IncidentModel incident;
 
-  const _VoteSection({required this.idIncidencia});
+  const _VoteSection({required this.incident});
 
   @override
   State<_VoteSection> createState() => _VoteSectionState();
@@ -1194,7 +2199,7 @@ class _VoteSectionState extends State<_VoteSection> {
 
   Future<void> _submitVote() async {
     final created = await context.read<IncidentsCubit>().createIncidentVote(
-      idIncidencia: widget.idIncidencia,
+      idIncidencia: widget.incident.idIncidencia,
       tipoVoto: _selectedVoteType,
       observacion: _observationController.text,
     );
@@ -1212,6 +2217,7 @@ class _VoteSectionState extends State<_VoteSection> {
         final summary =
             state.voteSummary ?? const IncidentVoteSummaryModel.empty();
         final userVote = summary.votoUsuario;
+        final isFinalState = _isFinalIncidentState(widget.incident);
 
         return Card(
           child: Padding(
@@ -1261,7 +2267,7 @@ class _VoteSectionState extends State<_VoteSection> {
                           : () => context
                                 .read<IncidentsCubit>()
                                 .refreshIncidentVoteSummary(
-                                  widget.idIncidencia,
+                                  widget.incident.idIncidencia,
                                 ),
                       icon: const Icon(Icons.refresh_rounded),
                       tooltip: 'Actualizar votos',
@@ -1281,12 +2287,20 @@ class _VoteSectionState extends State<_VoteSection> {
                     message: state.voteSummaryErrorMessage!,
                     onRetry: () => context
                         .read<IncidentsCubit>()
-                        .refreshIncidentVoteSummary(widget.idIncidencia),
+                        .refreshIncidentVoteSummary(
+                          widget.incident.idIncidencia,
+                        ),
                   )
                 else ...[
                   _VoteCounts(summary: summary),
                   const SizedBox(height: 16),
-                  if (summary.usuarioYaVoto && userVote != null)
+                  if (isFinalState)
+                    const _InlineEmptyState(
+                      icon: Icons.lock_outline_rounded,
+                      message:
+                          'La validación comunitaria se cerró porque la incidencia está en estado final.',
+                    )
+                  else if (summary.usuarioYaVoto && userVote != null)
                     _AlreadyVotedState(vote: userVote)
                   else
                     _VoteComposer(
@@ -1299,6 +2313,10 @@ class _VoteSectionState extends State<_VoteSection> {
                       },
                       onSubmit: _submitVote,
                     ),
+                  if (state.recentVotes.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _RecentVotesList(votes: state.recentVotes),
+                  ],
                 ],
               ],
             ),
@@ -1387,6 +2405,100 @@ class _VoteCountPill extends StatelessWidget {
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: AppColors.textSecondary,
               fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecentVotesList extends StatelessWidget {
+  final List<IncidentVoteModel> votes;
+
+  const _RecentVotesList({required this.votes});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Validaciones recientes',
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 10),
+        ...votes.map((vote) => _RecentVoteTile(vote: vote)),
+      ],
+    );
+  }
+}
+
+class _RecentVoteTile extends StatelessWidget {
+  final IncidentVoteModel vote;
+
+  const _RecentVoteTile({required this.vote});
+
+  @override
+  Widget build(BuildContext context) {
+    final alias = vote.aliasUsuario.isEmpty
+        ? 'Ciudadano'
+        : '@${vote.aliasUsuario}';
+    final date = vote.creadoEn == null
+        ? ''
+        : DateFormat('dd MMM, HH:mm').format(vote.creadoEn!.toLocal());
+    final observation = (vote.observacion ?? '').trim();
+    final color = _voteTypeColor(vote.tipoVoto);
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(_voteTypeIcon(vote.tipoVoto), color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$alias · ${_voteLabel(vote.tipoVoto)}',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                if (date.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    date,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+                if (observation.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    observation,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -1490,6 +2602,33 @@ class _VoteComposer extends StatelessWidget {
       ],
     );
   }
+}
+
+String _voteLabel(String type) {
+  return switch (type) {
+    'CONFIRMA_EXISTENCIA' => 'Existe',
+    'NO_EXISTE' => 'No corresponde',
+    'IMPORTANTE' => 'Importante',
+    _ => 'Validación',
+  };
+}
+
+IconData _voteTypeIcon(String type) {
+  return switch (type) {
+    'CONFIRMA_EXISTENCIA' => Icons.check_circle_outline_rounded,
+    'NO_EXISTE' => Icons.cancel_outlined,
+    'IMPORTANTE' => Icons.priority_high_rounded,
+    _ => Icons.how_to_vote_outlined,
+  };
+}
+
+Color _voteTypeColor(String type) {
+  return switch (type) {
+    'CONFIRMA_EXISTENCIA' => AppColors.success,
+    'NO_EXISTE' => AppColors.danger,
+    'IMPORTANTE' => AppColors.gold,
+    _ => AppColors.teal,
+  };
 }
 
 class _VoteChoiceChip extends StatelessWidget {
@@ -1953,6 +3092,25 @@ class _CommentTile extends StatelessWidget {
                       color: AppColors.textSecondary,
                       fontWeight: FontWeight.w700,
                     ),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: 'Denunciar comentario',
+                    onPressed: () => _showReportContentSheet(
+                      context,
+                      tipoEntidad: 'COMENTARIO',
+                      idEntidad: comment.idComentario,
+                      title: 'Denunciar comentario',
+                    ),
+                    icon: const Icon(Icons.flag_outlined),
+                    color: AppColors.danger,
+                    iconSize: 18,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 32,
+                    ),
+                    padding: EdgeInsets.zero,
                   ),
                 ],
               ),

@@ -25,6 +25,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AuthCubit>().refreshCurrentUser();
       context.read<IncidentsCubit>().loadInitialData();
     });
   }

@@ -61,6 +61,56 @@ class IncidentsCubit extends Cubit<IncidentsState> {
     }
   }
 
+  Future<void> loadNearbyPreferredIncidents({
+    required double latitud,
+    required double longitud,
+    bool notifyNearby = false,
+  }) async {
+    emit(
+      state.copyWith(
+        nearbyLoading: true,
+        clearError: true,
+        clearNearbyMessage: true,
+      ),
+    );
+
+    try {
+      final incidents = await _repository.getNearbyPreferredIncidents(
+        latitud: latitud,
+        longitud: longitud,
+      );
+
+      String? message;
+      if (notifyNearby) {
+        final total = await _repository.notifyNearbyIncidents(
+          latitud: latitud,
+          longitud: longitud,
+        );
+        message = total > 0
+            ? 'Te avisamos sobre $total reportes cercanos.'
+            : 'No hay nuevas alertas cercanas por ahora.';
+      }
+
+      emit(
+        state.copyWith(
+          nearbyLoading: false,
+          incidents: incidents,
+          nearbyMessage: message,
+          clearError: true,
+        ),
+      );
+    } on ApiException catch (error) {
+      emit(state.copyWith(nearbyLoading: false, errorMessage: error.message));
+    } catch (_) {
+      emit(
+        state.copyWith(
+          nearbyLoading: false,
+          errorMessage: 'No se pudieron cargar las incidencias cercanas.',
+        ),
+      );
+    }
+  }
+
   Future<void> loadMyReports() async {
     emit(state.copyWith(myReportsLoading: true, clearMyReportsError: true));
 
@@ -159,6 +209,8 @@ class IncidentsCubit extends Cubit<IncidentsState> {
         voteSummaryLoading: true,
         followStatusLoading: true,
         completionSummaryLoading: true,
+        statusHistoryLoading: true,
+        statusOptionsLoading: state.statusOptions.isEmpty,
         clearDetailError: true,
         clearCommentsError: true,
         clearCommentSubmitMessage: true,
@@ -171,15 +223,24 @@ class IncidentsCubit extends Cubit<IncidentsState> {
         clearCompletionSummaryError: true,
         clearCompletionSubmitMessage: true,
         clearCompletionSummary: true,
+        clearStatusHistoryError: true,
+        clearStatusChangeMessage: true,
+        clearContentReportMessage: true,
         clearSelectedIncident: true,
         selectedIncidentMultimedia: const [],
         selectedIncidentComments: const [],
+        recentVotes: const [],
+        recentConfirmations: const [],
+        statusHistory: const [],
       ),
     );
 
     try {
       final incident = await _repository.getIncidentById(idIncidencia);
       final multimedia = await _repository.getIncidentMultimedia(idIncidencia);
+      final statusOptions = state.statusOptions.isEmpty
+          ? await _repository.getIncidentStatuses()
+          : state.statusOptions;
       final imageUrls = multimedia
           .map((media) => media.downloadUrl)
           .where((url) => url.isNotEmpty)
@@ -190,6 +251,8 @@ class IncidentsCubit extends Cubit<IncidentsState> {
           detailLoading: false,
           selectedIncident: incident.copyWith(imagenes: imageUrls),
           selectedIncidentMultimedia: multimedia,
+          statusOptionsLoading: false,
+          statusOptions: statusOptions,
           clearDetailError: true,
         ),
       );
@@ -197,6 +260,7 @@ class IncidentsCubit extends Cubit<IncidentsState> {
       await refreshIncidentFollowStatus(idIncidencia);
       await refreshIncidentCompletionSummary(idIncidencia);
       await refreshIncidentVoteSummary(idIncidencia);
+      await refreshIncidentStatusHistory(idIncidencia);
       await refreshIncidentComments(idIncidencia);
     } on ApiException catch (error) {
       emit(
@@ -206,6 +270,8 @@ class IncidentsCubit extends Cubit<IncidentsState> {
           voteSummaryLoading: false,
           followStatusLoading: false,
           completionSummaryLoading: false,
+          statusHistoryLoading: false,
+          statusOptionsLoading: false,
           detailErrorMessage: error.message,
         ),
       );
@@ -217,7 +283,98 @@ class IncidentsCubit extends Cubit<IncidentsState> {
           voteSummaryLoading: false,
           followStatusLoading: false,
           completionSummaryLoading: false,
+          statusHistoryLoading: false,
+          statusOptionsLoading: false,
           detailErrorMessage: 'No se pudo cargar el detalle de la incidencia.',
+        ),
+      );
+    }
+  }
+
+  Future<void> changeIncidentStatus({
+    required String idIncidencia,
+    required String codigoEstado,
+    String? observacion,
+  }) async {
+    emit(state.copyWith(statusChanging: true, clearStatusChangeMessage: true));
+
+    try {
+      final updated = await _repository.changeIncidentStatus(
+        idIncidencia: idIncidencia,
+        codigoEstado: codigoEstado,
+        observacion: observacion,
+      );
+
+      final incidents = state.incidents.map((incident) {
+        if (incident.idIncidencia == updated.idIncidencia) {
+          return updated.copyWith(imagenes: incident.imagenes);
+        }
+        return incident;
+      }).toList();
+      final myReports = state.myReports.map((incident) {
+        if (incident.idIncidencia == updated.idIncidencia) {
+          return updated.copyWith(imagenes: incident.imagenes);
+        }
+        return incident;
+      }).toList();
+
+      emit(
+        state.copyWith(
+          statusChanging: false,
+          selectedIncident: updated.copyWith(
+            imagenes: state.selectedIncident?.imagenes,
+          ),
+          incidents: incidents,
+          myReports: myReports,
+          statusChangeMessage: 'Estado actualizado correctamente.',
+        ),
+      );
+
+      await refreshIncidentStatusHistory(idIncidencia);
+    } on ApiException catch (error) {
+      emit(
+        state.copyWith(
+          statusChanging: false,
+          statusChangeMessage: error.message,
+        ),
+      );
+    } catch (_) {
+      emit(
+        state.copyWith(
+          statusChanging: false,
+          statusChangeMessage: 'No se pudo cambiar el estado de la incidencia.',
+        ),
+      );
+    }
+  }
+
+  Future<void> refreshIncidentStatusHistory(String idIncidencia) async {
+    emit(
+      state.copyWith(statusHistoryLoading: true, clearStatusHistoryError: true),
+    );
+
+    try {
+      final history = await _repository.getIncidentStatusHistory(idIncidencia);
+      emit(
+        state.copyWith(
+          statusHistoryLoading: false,
+          statusHistory: history,
+          clearStatusHistoryError: true,
+        ),
+      );
+    } on ApiException catch (error) {
+      emit(
+        state.copyWith(
+          statusHistoryLoading: false,
+          statusHistoryErrorMessage: error.message,
+        ),
+      );
+    } catch (_) {
+      emit(
+        state.copyWith(
+          statusHistoryLoading: false,
+          statusHistoryErrorMessage:
+              'No se pudo cargar el historial de estados.',
         ),
       );
     }
@@ -235,10 +392,13 @@ class IncidentsCubit extends Cubit<IncidentsState> {
       final summary = await _repository.getIncidentCompletionSummary(
         idIncidencia,
       );
+      final confirmations = await _repository
+          .getIncidentCompletionConfirmations(idIncidencia);
       emit(
         state.copyWith(
           completionSummaryLoading: false,
           completionSummary: summary,
+          recentConfirmations: confirmations,
           clearCompletionSummaryError: true,
         ),
       );
@@ -312,6 +472,7 @@ class IncidentsCubit extends Cubit<IncidentsState> {
           clearCompletionSubmitMessage: true,
         ),
       );
+      await refreshIncidentCompletionSummary(idIncidencia);
       return true;
     } on ApiException catch (error) {
       emit(
@@ -468,10 +629,12 @@ class IncidentsCubit extends Cubit<IncidentsState> {
 
     try {
       final summary = await _repository.getIncidentVoteSummary(idIncidencia);
+      final votes = await _repository.getIncidentVotes(idIncidencia);
       emit(
         state.copyWith(
           voteSummaryLoading: false,
           voteSummary: summary,
+          recentVotes: votes,
           clearVoteSummaryError: true,
         ),
       );
@@ -518,6 +681,63 @@ class IncidentsCubit extends Cubit<IncidentsState> {
         state.copyWith(
           voteSubmitting: false,
           voteSubmitMessage: 'No se pudo registrar tu validación.',
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> reportContent({
+    required String tipoEntidad,
+    required String idEntidad,
+    required String motivo,
+    String? detalle,
+  }) async {
+    final cleanMotivo = motivo.trim();
+    if (cleanMotivo.isEmpty) {
+      emit(
+        state.copyWith(
+          contentReportMessage: 'Selecciona un motivo para enviar la denuncia.',
+        ),
+      );
+      return false;
+    }
+
+    emit(
+      state.copyWith(
+        contentReportSubmitting: true,
+        clearContentReportMessage: true,
+      ),
+    );
+
+    try {
+      await _repository.reportContent(
+        tipoEntidad: tipoEntidad,
+        idEntidad: idEntidad,
+        motivo: cleanMotivo,
+        detalle: detalle,
+      );
+      emit(
+        state.copyWith(
+          contentReportSubmitting: false,
+          contentReportMessage:
+              'Denuncia enviada. Revisaremos el contenido reportado.',
+        ),
+      );
+      return true;
+    } on ApiException catch (error) {
+      emit(
+        state.copyWith(
+          contentReportSubmitting: false,
+          contentReportMessage: error.message,
+        ),
+      );
+      return false;
+    } catch (_) {
+      emit(
+        state.copyWith(
+          contentReportSubmitting: false,
+          contentReportMessage: 'No se pudo enviar la denuncia.',
         ),
       );
       return false;

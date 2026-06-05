@@ -12,6 +12,8 @@ import 'incident_completion_confirmation_model.dart';
 import 'incident_follow_model.dart';
 import 'incident_image_attachment.dart';
 import 'incident_model.dart';
+import 'incident_status_history_model.dart';
+import 'incident_status_option_model.dart';
 import 'incident_vote_model.dart';
 import 'multimedia_model.dart';
 
@@ -45,6 +47,18 @@ class IncidentsRepository {
         .toList();
   }
 
+  Future<List<IncidentStatusOptionModel>> getIncidentStatuses() async {
+    final response = await _safeRequest(() {
+      return _dioClient.get<List<dynamic>>('/api/catalogos/estados-incidencia');
+    });
+
+    return (response.data ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(IncidentStatusOptionModel.fromJson)
+        .where((status) => status.codigo.isNotEmpty)
+        .toList();
+  }
+
   Future<List<IncidentModel>> getIncidents({
     int limit = 20,
     int offset = 0,
@@ -60,6 +74,53 @@ class IncidentsRepository {
         .whereType<Map<String, dynamic>>()
         .map(IncidentModel.fromJson)
         .toList();
+  }
+
+  Future<List<IncidentModel>> getNearbyPreferredIncidents({
+    required double latitud,
+    required double longitud,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    final token = await _getIdToken();
+    final response = await _safeRequest(() {
+      return _dioClient.get<List<dynamic>>(
+        '/api/incidencias/cercanas/preferidas',
+        token: token,
+        queryParameters: {
+          'latitud': latitud,
+          'longitud': longitud,
+          'limit': limit,
+          'offset': offset,
+        },
+      );
+    });
+
+    return (response.data ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(IncidentModel.fromJson)
+        .toList();
+  }
+
+  Future<int> notifyNearbyIncidents({
+    required double latitud,
+    required double longitud,
+  }) async {
+    final token = await _getIdToken();
+    final response = await _safeRequest(() {
+      return _dioClient.post<Map<String, dynamic>>(
+        '/api/incidencias/cercanas/notificaciones',
+        token: token,
+        queryParameters: {'latitud': latitud, 'longitud': longitud},
+      );
+    });
+
+    final total = response.data?['totalNotificaciones'];
+    if (total is num) {
+      return total.toInt();
+    }
+
+    return int.tryParse(total?.toString() ?? '') ?? 0;
   }
 
   Future<List<IncidentModel>> getMyIncidents({
@@ -107,6 +168,45 @@ class IncidentsRepository {
         .toList();
   }
 
+  Future<List<IncidentStatusHistoryModel>> getIncidentStatusHistory(
+    String idIncidencia,
+  ) async {
+    final response = await _safeRequest(() {
+      return _dioClient.get<List<dynamic>>(
+        '/api/incidencias/$idIncidencia/historial-estados',
+      );
+    });
+
+    return (response.data ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(IncidentStatusHistoryModel.fromJson)
+        .where((item) => item.idHistorial.isNotEmpty)
+        .toList();
+  }
+
+  Future<IncidentModel> changeIncidentStatus({
+    required String idIncidencia,
+    required String codigoEstado,
+    String? observacion,
+  }) async {
+    final token = await _getIdToken();
+    final response = await _safeRequest(() {
+      return _dioClient.patch<Map<String, dynamic>>(
+        '/api/incidencias/$idIncidencia/estado',
+        token: token,
+        data: {
+          'codigoEstado': codigoEstado,
+          'observacion': (observacion ?? '').trim().isEmpty
+              ? null
+              : observacion!.trim(),
+          'origenCambio': 'CIUDADANO',
+        },
+      );
+    });
+
+    return IncidentModel.fromJson(response.data ?? {});
+  }
+
   Future<List<IncidentCommentModel>> getIncidentComments(
     String idIncidencia, {
     int limit = 50,
@@ -123,6 +223,24 @@ class IncidentsRepository {
         .whereType<Map<String, dynamic>>()
         .map(IncidentCommentModel.fromJson)
         .where((comment) => comment.contenido.trim().isNotEmpty)
+        .toList();
+  }
+
+  Future<List<IncidentVoteModel>> getIncidentVotes(
+    String idIncidencia, {
+    int limit = 10,
+  }) async {
+    final response = await _safeRequest(() {
+      return _dioClient.get<List<dynamic>>(
+        '/api/incidencias/$idIncidencia/votos',
+        queryParameters: {'limit': limit},
+      );
+    });
+
+    return (response.data ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(IncidentVoteModel.fromJson)
+        .where((vote) => vote.idVoto.isNotEmpty)
         .toList();
   }
 
@@ -178,6 +296,27 @@ class IncidentsRepository {
     return IncidentVoteModel.fromJson(response.data ?? {});
   }
 
+  Future<void> reportContent({
+    required String tipoEntidad,
+    required String idEntidad,
+    required String motivo,
+    String? detalle,
+  }) async {
+    final token = await _getIdToken();
+    await _safeRequest(() {
+      return _dioClient.post<Map<String, dynamic>>(
+        '/api/reportes-contenido',
+        token: token,
+        data: {
+          'tipoEntidad': tipoEntidad,
+          'idEntidad': idEntidad,
+          'motivo': motivo.trim(),
+          'detalle': (detalle ?? '').trim().isEmpty ? null : detalle!.trim(),
+        },
+      );
+    });
+  }
+
   Future<IncidentFollowStatusModel> getIncidentFollowStatus(
     String idIncidencia,
   ) async {
@@ -230,6 +369,25 @@ class IncidentsRepository {
     });
 
     return IncidentCompletionSummaryModel.fromJson(response.data ?? {});
+  }
+
+  Future<List<IncidentCompletionConfirmationDetailModel>>
+  getIncidentCompletionConfirmations(
+    String idIncidencia, {
+    int limit = 10,
+  }) async {
+    final response = await _safeRequest(() {
+      return _dioClient.get<List<dynamic>>(
+        '/api/incidencias/$idIncidencia/confirmaciones',
+        queryParameters: {'limit': limit},
+      );
+    });
+
+    return (response.data ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(IncidentCompletionConfirmationDetailModel.fromJson)
+        .where((confirmation) => confirmation.idConfirmacion.isNotEmpty)
+        .toList();
   }
 
   Future<IncidentCompletionConfirmationModel> createCompletionConfirmation({

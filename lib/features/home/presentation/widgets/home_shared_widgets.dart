@@ -8,12 +8,18 @@ class WelcomeHeader extends StatelessWidget {
   final String name;
   final String alias;
   final int points;
+  final String levelName;
+  final double levelProgress;
+  final int pointsToNextLevel;
 
   const WelcomeHeader({
     super.key,
     required this.name,
     required this.alias,
     required this.points,
+    required this.levelName,
+    required this.levelProgress,
+    required this.pointsToNextLevel,
   });
 
   @override
@@ -80,11 +86,59 @@ class WelcomeHeader extends StatelessWidget {
                 const Icon(Icons.stars_rounded, color: AppColors.gold),
                 const SizedBox(width: 12),
                 Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$points puntos · $levelName',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: AppColors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: levelProgress,
+                          minHeight: 7,
+                          backgroundColor: AppColors.white.withValues(
+                            alpha: 0.12,
+                          ),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            AppColors.gold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        pointsToNextLevel == 0
+                            ? 'Nivel máximo alcanzado'
+                            : '$pointsToNextLevel puntos para el siguiente nivel',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.white.withValues(alpha: 0.7),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.gold.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                   child: Text(
-                    '$points puntos comunitarios',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AppColors.white,
-                      fontWeight: FontWeight.w800,
+                    levelName.isEmpty ? 'Nivel' : levelName,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: AppColors.gold,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),

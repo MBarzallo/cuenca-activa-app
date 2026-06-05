@@ -92,6 +92,13 @@ class _HomeMapViewState extends State<HomeMapView> {
         _locationStatus = _LocationStatus.ready;
       });
       _mapController.move(point, 15);
+      if (mounted) {
+        await context.read<IncidentsCubit>().loadNearbyPreferredIncidents(
+          latitud: position.latitude,
+          longitud: position.longitude,
+          notifyNearby: !silent,
+        );
+      }
     } catch (_) {
       setState(() {
         _locationStatus = _LocationStatus.error;
@@ -135,7 +142,17 @@ class _HomeMapViewState extends State<HomeMapView> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<IncidentsCubit, IncidentsState>(
+    return BlocConsumer<IncidentsCubit, IncidentsState>(
+      listenWhen: (previous, current) =>
+          previous.nearbyMessage != current.nearbyMessage,
+      listener: (context, state) {
+        final message = state.nearbyMessage;
+        if (message != null && message.isNotEmpty) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
+      },
       builder: (context, state) {
         final incidentsWithLocation = state.incidents
             .where((incident) => incident.latitud != null)
@@ -199,6 +216,7 @@ class _HomeMapViewState extends State<HomeMapView> {
               right: 16,
               child: _MapSummaryCard(
                 loading: state.loading,
+                nearbyLoading: state.nearbyLoading,
                 errorMessage: state.errorMessage,
                 totalIncidents: state.incidents.length,
                 mappedIncidents: incidentsWithLocation.length,
@@ -213,13 +231,19 @@ class _HomeMapViewState extends State<HomeMapView> {
                 children: [
                   _MapActionButton(
                     tooltip: 'Centrar en mi ubicacion',
-                    icon: _locationStatus == _LocationStatus.loading
+                    icon:
+                        _locationStatus == _LocationStatus.loading ||
+                            state.nearbyLoading
                         ? null
                         : Icons.my_location_rounded,
-                    onPressed: _locationStatus == _LocationStatus.loading
+                    onPressed:
+                        _locationStatus == _LocationStatus.loading ||
+                            state.nearbyLoading
                         ? null
                         : () => _centerOnUserLocation(),
-                    child: _locationStatus == _LocationStatus.loading
+                    child:
+                        _locationStatus == _LocationStatus.loading ||
+                            state.nearbyLoading
                         ? const SizedBox(
                             width: 20,
                             height: 20,
@@ -307,6 +331,7 @@ class _IncidentMarker extends StatelessWidget {
 
 class _MapSummaryCard extends StatelessWidget {
   final bool loading;
+  final bool nearbyLoading;
   final String? errorMessage;
   final int totalIncidents;
   final int mappedIncidents;
@@ -315,6 +340,7 @@ class _MapSummaryCard extends StatelessWidget {
 
   const _MapSummaryCard({
     required this.loading,
+    required this.nearbyLoading,
     required this.errorMessage,
     required this.totalIncidents,
     required this.mappedIncidents,
@@ -327,7 +353,8 @@ class _MapSummaryCard extends StatelessWidget {
     final message =
         errorMessage ??
         locationMessage ??
-        '$mappedIncidents reportes visibles en el mapa';
+        '$mappedIncidents reportes dentro de tu radio preferido';
+    final isLoading = loading || nearbyLoading;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -353,7 +380,7 @@ class _MapSummaryCard extends StatelessWidget {
                 color: AppColors.teal.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: loading
+              child: isLoading
                   ? const Padding(
                       padding: EdgeInsets.all(12),
                       child: CircularProgressIndicator(strokeWidth: 2),
@@ -380,8 +407,8 @@ class _MapSummaryCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    totalIncidents == 0 && errorMessage == null && !loading
-                        ? 'Explora Cuenca y crea el primer reporte.'
+                    totalIncidents == 0 && errorMessage == null && !isLoading
+                        ? 'No hay reportes dentro de tu radio por ahora.'
                         : message,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,

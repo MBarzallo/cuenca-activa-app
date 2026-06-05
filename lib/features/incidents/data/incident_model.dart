@@ -72,6 +72,8 @@ class IncidentModel {
   }
 
   IncidentModel copyWith({
+    String? codigoEstado,
+    String? nombreEstado,
     int? cantidadComentarios,
     int? cantidadSeguidores,
     int? cantidadConfirmaciones,
@@ -84,8 +86,8 @@ class IncidentModel {
       idCategoria: idCategoria,
       codigoCategoria: codigoCategoria,
       nombreCategoria: nombreCategoria,
-      codigoEstado: codigoEstado,
-      nombreEstado: nombreEstado,
+      codigoEstado: codigoEstado ?? this.codigoEstado,
+      nombreEstado: nombreEstado ?? this.nombreEstado,
       titulo: titulo,
       descripcion: descripcion,
       latitud: latitud,

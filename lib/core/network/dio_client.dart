@@ -36,12 +36,26 @@ class DioClient {
     );
   }
 
-  Future<Response<T>> post<T>(String path, {String? token, Object? data}) {
-    return dio.post<T>(path, data: data, options: _options(token));
+  Future<Response<T>> post<T>(
+    String path, {
+    String? token,
+    Object? data,
+    Map<String, dynamic>? queryParameters,
+  }) {
+    return dio.post<T>(
+      path,
+      data: data,
+      queryParameters: queryParameters,
+      options: _options(token),
+    );
   }
 
   Future<Response<T>> put<T>(String path, {String? token, Object? data}) {
     return dio.put<T>(path, data: data, options: _options(token));
+  }
+
+  Future<Response<T>> patch<T>(String path, {String? token, Object? data}) {
+    return dio.patch<T>(path, data: data, options: _options(token));
   }
 
   Future<Response<T>> delete<T>(String path, {String? token, Object? data}) {

@@ -1,7 +1,9 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../data/auth_repository.dart';
+import '../data/points_movement_model.dart';
 import 'auth_state.dart';
 
 class AuthCubit extends Cubit<AuthState> {
@@ -34,6 +36,19 @@ class AuthCubit extends Cubit<AuthState> {
       emit(AuthFailure(code: error.code, message: error.message));
     } catch (error) {
       emit(AuthFailure(code: 'UNKNOWN_ERROR', message: error.toString()));
+    }
+  }
+
+  Future<void> refreshCurrentUser() async {
+    if (state is! AuthAuthenticated) {
+      return;
+    }
+
+    try {
+      final user = await _authRepository.getMe();
+      emit(AuthAuthenticated(user));
+    } catch (_) {
+      // La recarga silenciosa no debe bloquear la pantalla actual.
     }
   }
 
@@ -104,6 +119,48 @@ class AuthCubit extends Cubit<AuthState> {
   Future<void> logout() async {
     await _authRepository.logout();
     emit(const AuthUnauthenticated());
+  }
+
+  Future<String?> updateProfile({
+    required String nombres,
+    required String apellidos,
+    required String aliasPublico,
+    String? telefono,
+    String? fotoPerfilUrl,
+  }) async {
+    if (state is! AuthAuthenticated) {
+      return 'Inicia sesión para editar tu perfil.';
+    }
+
+    try {
+      final updatedUser = await _authRepository.updateProfile(
+        nombres: nombres,
+        apellidos: apellidos,
+        aliasPublico: aliasPublico,
+        telefono: telefono,
+        fotoPerfilUrl: fotoPerfilUrl,
+      );
+      emit(AuthAuthenticated(updatedUser));
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'No se pudo actualizar el perfil.';
+    }
+  }
+
+  Future<String?> uploadProfilePhoto(XFile image) async {
+    try {
+      return await _authRepository.uploadProfilePhoto(image);
+    } on ApiException catch (error) {
+      throw Exception(error.message);
+    } catch (_) {
+      throw Exception('No se pudo subir la foto de perfil.');
+    }
+  }
+
+  Future<List<PointsMovementModel>> getPointsMovements() {
+    return _authRepository.getPointsMovements();
   }
 
   Future<void> sendPasswordResetEmail(String email) async {
