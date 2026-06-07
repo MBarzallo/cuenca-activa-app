@@ -128,7 +128,7 @@ class IncidentBottomSheet extends StatelessWidget {
             FilledButton.icon(
               onPressed: () {
                 context.pop();
-                context.go('/incidents/${incident.idIncidencia}');
+                context.push('/incidents/${incident.idIncidencia}');
               },
               icon: const Icon(Icons.open_in_new_rounded),
               label: const Text('Ver detalle'),

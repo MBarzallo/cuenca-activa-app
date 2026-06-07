@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../main/presentation/main_scaffold.dart';
 import '../data/category_model.dart';
 import '../data/incident_image_attachment.dart';
 import '../logic/incidents_cubit.dart';
@@ -23,13 +22,15 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _addressController = TextEditingController();
-  final _latitudeController = TextEditingController();
-  final _longitudeController = TextEditingController();
   final _imagePicker = ImagePicker();
 
   CategoryModel? _selectedCategory;
   XFile? _selectedImage;
+  Position? _currentPosition;
   bool _locating = false;
+  String? _locationMessage;
+  bool _locationBlocked = false;
+  bool _locationServiceDisabled = false;
 
   @override
   void initState() {
@@ -39,6 +40,7 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
       if (cubit.state.categories.isEmpty && !cubit.state.loading) {
         cubit.loadInitialData();
       }
+      _useCurrentLocation(silent: true);
     });
   }
 
@@ -47,18 +49,25 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
     _titleController.dispose();
     _descriptionController.dispose();
     _addressController.dispose();
-    _latitudeController.dispose();
-    _longitudeController.dispose();
     super.dispose();
   }
 
-  Future<void> _useCurrentLocation() async {
-    setState(() => _locating = true);
+  Future<void> _useCurrentLocation({bool silent = false}) async {
+    setState(() {
+      _locating = true;
+      _locationMessage = null;
+      _locationBlocked = false;
+      _locationServiceDisabled = false;
+    });
 
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        _showMessage('Activa la ubicacion del dispositivo para continuar.');
+        _setLocationFailure(
+          'Activa la ubicación del dispositivo para continuar.',
+          serviceDisabled: true,
+          silent: silent,
+        );
         return;
       }
 
@@ -69,7 +78,13 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
 
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        _showMessage('No tenemos permiso para leer tu ubicacion.');
+        _setLocationFailure(
+          permission == LocationPermission.deniedForever
+              ? 'La ubicación está bloqueada. Habilítala desde ajustes para reportar.'
+              : 'Necesitamos permiso de ubicación para registrar el reporte.',
+          blocked: permission == LocationPermission.deniedForever,
+          silent: silent,
+        );
         return;
       }
 
@@ -79,10 +94,21 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
         ),
       );
 
-      _latitudeController.text = position.latitude.toStringAsFixed(6);
-      _longitudeController.text = position.longitude.toStringAsFixed(6);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _currentPosition = position;
+        _locationMessage = 'Ubicación lista para enviar el reporte.';
+        _locationBlocked = false;
+        _locationServiceDisabled = false;
+      });
     } catch (_) {
-      _showMessage('No se pudo obtener tu ubicacion.');
+      _setLocationFailure(
+        'No se pudo obtener tu ubicación. Intenta nuevamente.',
+        silent: silent,
+      );
     } finally {
       if (mounted) {
         setState(() => _locating = false);
@@ -90,10 +116,39 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
     }
   }
 
+  void _setLocationFailure(
+    String message, {
+    bool blocked = false,
+    bool serviceDisabled = false,
+    bool silent = false,
+  }) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _currentPosition = null;
+      _locationMessage = message;
+      _locationBlocked = blocked;
+      _locationServiceDisabled = serviceDisabled;
+    });
+
+    if (!silent) {
+      _showMessage(message);
+    }
+  }
+
   void _submit() {
     FocusScope.of(context).unfocus();
 
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final position = _currentPosition;
+    if (position == null) {
+      _showMessage('Obtén tu ubicación actual antes de enviar el reporte.');
+      _useCurrentLocation();
       return;
     }
 
@@ -107,8 +162,8 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
       idCategoria: category.idCategoria,
       titulo: _titleController.text,
       descripcion: _descriptionController.text,
-      latitud: double.parse(_latitudeController.text.trim()),
-      longitud: double.parse(_longitudeController.text.trim()),
+      latitud: position.latitude,
+      longitud: position.longitude,
       direccionReferencial: _addressController.text,
       imageAttachment: _selectedImage == null
           ? null
@@ -166,9 +221,7 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
       builder: (context, state) {
         final submitting = state.submitStatus == IncidentSubmitStatus.loading;
 
-        return MainScaffold(
-          currentIndex: 1,
-          title: 'Reportar incidencia',
+        return Scaffold(
           body: SafeArea(
             child: SingleChildScrollView(
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -189,52 +242,61 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
                     else ...[
                       DropdownButtonFormField<CategoryModel>(
                         initialValue: _selectedCategory,
-                        items: state.categories
-                            .map(
-                              (category) => DropdownMenuItem(
-                                value: category,
-                                child: Text(category.nombre),
-                              ),
-                            )
-                            .toList(),
+                        hint: const Text('Selecciona una categoría'),
+                        decoration: const InputDecoration(
+                          labelText: 'Categoría',
+                          prefixIcon: Icon(Icons.category_rounded),
+                        ),
+                        items: state.categories.map((cat) {
+                          return DropdownMenuItem(
+                            value: cat,
+                            child: Text(cat.nombre),
+                          );
+                        }).toList(),
                         onChanged: submitting
                             ? null
-                            : (value) {
-                                setState(() => _selectedCategory = value);
-                              },
-                        decoration: const InputDecoration(
-                          labelText: 'Categoria',
-                          prefixIcon: Icon(Icons.category_outlined),
-                        ),
-                        validator: (value) =>
-                            value == null ? 'Selecciona una categoria' : null,
+                            : (value) =>
+                                  setState(() => _selectedCategory = value),
+                        validator: (value) {
+                          if (value == null) {
+                            return 'Selecciona una categoría';
+                          }
+                          return null;
+                        },
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 20),
                       TextFormField(
                         controller: _titleController,
-                        textCapitalization: TextCapitalization.sentences,
-                        textInputAction: TextInputAction.next,
-                        maxLength: 150,
+                        enabled: !submitting,
                         decoration: const InputDecoration(
-                          labelText: 'Titulo',
+                          labelText: 'Título',
+                          hintText: 'Ej. Bache peligroso en la calzada',
                           prefixIcon: Icon(Icons.title_rounded),
                         ),
+                        textCapitalization: TextCapitalization.sentences,
+                        maxLength: 80,
                         validator: _requiredValidator,
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 20),
                       TextFormField(
                         controller: _descriptionController,
-                        textCapitalization: TextCapitalization.sentences,
-                        minLines: 4,
-                        maxLines: 6,
+                        enabled: !submitting,
+                        maxLines: 4,
                         decoration: const InputDecoration(
-                          labelText: 'Descripcion',
+                          labelText: 'Descripción del problema',
+                          hintText:
+                              'Describe detalladamente la situación y los peligros asociados...',
                           alignLabelWithHint: true,
-                          prefixIcon: Icon(Icons.notes_rounded),
+                          prefixIcon: Padding(
+                            padding: EdgeInsets.only(bottom: 56),
+                            child: Icon(Icons.description_rounded),
+                          ),
                         ),
+                        textCapitalization: TextCapitalization.sentences,
+                        maxLength: 500,
                         validator: _requiredValidator,
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 20),
                       TextFormField(
                         controller: _addressController,
                         textCapitalization: TextCapitalization.sentences,
@@ -245,74 +307,18 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
                           prefixIcon: Icon(Icons.place_outlined),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _latitudeController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                    signed: true,
-                                  ),
-                              textInputAction: TextInputAction.next,
-                              decoration: const InputDecoration(
-                                labelText: 'Latitud',
-                                prefixIcon: Icon(Icons.my_location_rounded),
-                              ),
-                              validator: (value) => _coordinateValidator(
-                                value,
-                                min: -90,
-                                max: 90,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _longitudeController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                    signed: true,
-                                  ),
-                              textInputAction: TextInputAction.done,
-                              onFieldSubmitted: (_) {
-                                if (!submitting) _submit();
-                              },
-                              decoration: const InputDecoration(
-                                labelText: 'Longitud',
-                                prefixIcon: Icon(Icons.explore_outlined),
-                              ),
-                              validator: (value) => _coordinateValidator(
-                                value,
-                                min: -180,
-                                max: 180,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
                       const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: _locating || submitting
-                            ? null
-                            : _useCurrentLocation,
-                        icon: _locating
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.gps_fixed_rounded),
-                        label: Text(
-                          _locating
-                              ? 'Obteniendo ubicacion'
-                              : 'Usar mi ubicacion actual',
-                        ),
+                      _LocationCaptureCard(
+                        position: _currentPosition,
+                        locating: _locating,
+                        message: _locationMessage,
+                        blocked: _locationBlocked,
+                        serviceDisabled: _locationServiceDisabled,
+                        disabled: submitting,
+                        onRetry: () => _useCurrentLocation(),
+                        onOpenSettings: _locationBlocked
+                            ? Geolocator.openAppSettings
+                            : Geolocator.openLocationSettings,
                       ),
                       const SizedBox(height: 22),
                       _ImagePickerCard(
@@ -324,7 +330,7 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
                       ),
                       const SizedBox(height: 22),
                       FilledButton.icon(
-                        onPressed: submitting ? null : _submit,
+                        onPressed: submitting || _locating ? null : _submit,
                         icon: submitting
                             ? const SizedBox(
                                 width: 18,
@@ -353,24 +359,6 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
   String? _requiredValidator(String? value) {
     if (value == null || value.trim().isEmpty) {
       return 'Este campo es obligatorio';
-    }
-
-    return null;
-  }
-
-  String? _coordinateValidator(
-    String? value, {
-    required double min,
-    required double max,
-  }) {
-    final number = double.tryParse(value?.trim() ?? '');
-
-    if (number == null) {
-      return 'Valor invalido';
-    }
-
-    if (number < min || number > max) {
-      return 'Fuera de rango';
     }
 
     return null;
@@ -444,6 +432,145 @@ class _LoadingCategoriesCard extends StatelessWidget {
             CircularProgressIndicator(strokeWidth: 2),
             SizedBox(height: 14),
             Text('Cargando categorias...'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationCaptureCard extends StatelessWidget {
+  final Position? position;
+  final bool locating;
+  final String? message;
+  final bool blocked;
+  final bool serviceDisabled;
+  final bool disabled;
+  final VoidCallback onRetry;
+  final Future<bool> Function() onOpenSettings;
+
+  const _LocationCaptureCard({
+    required this.position,
+    required this.locating,
+    required this.message,
+    required this.blocked,
+    required this.serviceDisabled,
+    required this.disabled,
+    required this.onRetry,
+    required this.onOpenSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final currentPosition = position;
+    final hasLocation = currentPosition != null;
+    final hasProblem = !hasLocation && (blocked || serviceDisabled);
+    final color = hasLocation
+        ? AppColors.success
+        : hasProblem
+        ? AppColors.danger
+        : AppColors.teal;
+    final title = hasLocation
+        ? 'Ubicación capturada'
+        : locating
+        ? 'Obteniendo ubicación'
+        : hasProblem
+        ? 'Ubicación requerida'
+        : 'Ubicación del reporte';
+    final description = hasLocation
+        ? '${currentPosition.latitude.toStringAsFixed(6)}, ${currentPosition.longitude.toStringAsFixed(6)}'
+        : message ??
+              'La app tomará tu ubicación actual para ubicar el reporte en el mapa.';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(
+                    hasLocation
+                        ? Icons.my_location_rounded
+                        : Icons.location_searching_rounded,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: disabled || locating ? null : onRetry,
+                    icon: locating
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            hasLocation
+                                ? Icons.refresh_rounded
+                                : Icons.gps_fixed_rounded,
+                          ),
+                    label: Text(
+                      locating
+                          ? 'Ubicando...'
+                          : hasLocation
+                          ? 'Actualizar'
+                          : 'Obtener ubicación',
+                    ),
+                  ),
+                ),
+                if (blocked || serviceDisabled) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: disabled || locating
+                          ? null
+                          : () async {
+                              await onOpenSettings();
+                            },
+                      icon: const Icon(Icons.settings_outlined),
+                      label: const Text('Ajustes'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
       ),

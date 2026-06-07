@@ -6,7 +6,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../auth/logic/auth_cubit.dart';
 import '../../auth/logic/auth_state.dart';
 import '../../home/presentation/widgets/home_shared_widgets.dart';
-import '../../main/presentation/main_scaffold.dart';
 import '../logic/incidents_cubit.dart';
 import '../logic/incidents_state.dart';
 
@@ -34,9 +33,7 @@ class _MyReportsPageState extends State<MyReportsPage> {
           context.go('/');
         }
       },
-      child: MainScaffold(
-        currentIndex: 2,
-        title: 'Mis reportes',
+      child: Scaffold(
         body: SafeArea(
           bottom: false,
           child: BlocBuilder<IncidentsCubit, IncidentsState>(
@@ -58,7 +55,8 @@ class _MyReportsPageState extends State<MyReportsPage> {
                     title: 'No pudimos cargar tus reportes',
                     message: state.myReportsErrorMessage!,
                     actionLabel: 'Reintentar',
-                    onAction: context.read<IncidentsCubit>().loadMyReports,
+                    onAction: () =>
+                        context.read<IncidentsCubit>().loadMyReports(),
                   ),
                 );
               }
@@ -68,26 +66,24 @@ class _MyReportsPageState extends State<MyReportsPage> {
                   padding: const EdgeInsets.all(20),
                   child: HomeInfoState(
                     icon: Icons.assignment_outlined,
-                    title: 'Aun no tienes reportes',
+                    title: 'Aún no tienes reportes',
                     message:
-                        'Tus incidencias apareceran aqui para que puedas revisarlas rapidamente.',
-                    actionLabel: 'Crear reporte',
+                        'Cuando crees una incidencia, aparecerá en esta sección para que puedas seguir su estado.',
+                    actionLabel: 'Reportar incidencia',
                     onAction: () => context.go('/report-incident'),
                   ),
                 );
               }
 
               return RefreshIndicator(
-                onRefresh: context.read<IncidentsCubit>().loadMyReports,
+                onRefresh: () => context.read<IncidentsCubit>().loadMyReports(),
                 child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
                   itemBuilder: (context, index) {
-                    final incident = reports[index];
-
+                    final item = reports[index];
                     return IncidentCard(
-                      incident: incident,
-                      onTap: () =>
-                          context.go('/incidents/${incident.idIncidencia}'),
+                      incident: item,
+                      onTap: () => context.push('/incidents/${item.idIncidencia}'),
                     );
                   },
                   separatorBuilder: (context, index) =>

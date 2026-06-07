@@ -10,7 +10,6 @@ import '../../auth/data/auth_user_model.dart';
 import '../../auth/data/points_movement_model.dart';
 import '../../auth/logic/auth_cubit.dart';
 import '../../auth/logic/auth_state.dart';
-import '../../main/presentation/main_scaffold.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -50,9 +49,7 @@ class _ProfilePageState extends State<ProfilePage> {
           context.go('/');
         }
       },
-      child: MainScaffold(
-        currentIndex: 3,
-        title: 'Perfil',
+      child: Scaffold(
         body: SafeArea(
           child: switch (authState) {
             AuthAuthenticated(:final user) => RefreshIndicator(

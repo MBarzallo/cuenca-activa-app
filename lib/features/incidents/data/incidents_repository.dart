@@ -16,6 +16,7 @@ import 'incident_status_history_model.dart';
 import 'incident_status_option_model.dart';
 import 'incident_vote_model.dart';
 import 'multimedia_model.dart';
+import 'incident_related_model.dart';
 
 class IncidentsRepository {
   static const firebaseStorageBucket = 'cuenca-activa.firebasestorage.app';
@@ -716,6 +717,39 @@ class IncidentsRepository {
     }
 
     return token;
+  }
+
+  Future<List<IncidentRelatedModel>> getRelatedIncidents(
+    String idIncidencia,
+  ) async {
+    final response = await _safeRequest(() {
+      return _dioClient.get<List<dynamic>>(
+        '/api/incidencias/$idIncidencia/relacionadas',
+      );
+    });
+
+    return (response.data ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(IncidentRelatedModel.fromJson)
+        .toList();
+  }
+
+  Future<void> relateIncident({
+    required String idIncidencia,
+    required String idIncidenciaRelacionada,
+    required String tipoRelacion,
+  }) async {
+    final token = await _getIdToken();
+    await _safeRequest(() {
+      return _dioClient.post<Map<String, dynamic>>(
+        '/api/incidencias/$idIncidencia/relacionadas',
+        token: token,
+        data: {
+          'idIncidenciaRelacionada': idIncidenciaRelacionada,
+          'tipoRelacion': tipoRelacion,
+        },
+      );
+    });
   }
 
   Future<Response<T>> _safeRequest<T>(

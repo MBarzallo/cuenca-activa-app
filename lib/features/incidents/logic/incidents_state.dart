@@ -9,6 +9,7 @@ import '../data/incident_status_history_model.dart';
 import '../data/incident_status_option_model.dart';
 import '../data/incident_vote_model.dart';
 import '../data/multimedia_model.dart';
+import '../data/incident_related_model.dart';
 
 enum IncidentSubmitStatus { initial, loading, success, failure }
 
@@ -59,6 +60,9 @@ class IncidentsState extends Equatable {
   final bool myReportsLoading;
   final List<IncidentModel> myReports;
   final String? myReportsErrorMessage;
+  final bool relatedLoading;
+  final List<IncidentRelatedModel> relatedIncidents;
+  final String? relatedErrorMessage;
 
   const IncidentsState({
     required this.loading,
@@ -107,6 +111,9 @@ class IncidentsState extends Equatable {
     required this.myReportsLoading,
     required this.myReports,
     required this.myReportsErrorMessage,
+    required this.relatedLoading,
+    required this.relatedIncidents,
+    required this.relatedErrorMessage,
   });
 
   const IncidentsState.initial()
@@ -155,7 +162,10 @@ class IncidentsState extends Equatable {
       contentReportMessage = null,
       myReportsLoading = false,
       myReports = const [],
-      myReportsErrorMessage = null;
+      myReportsErrorMessage = null,
+      relatedLoading = false,
+      relatedIncidents = const [],
+      relatedErrorMessage = null;
 
   IncidentsState copyWith({
     bool? loading,
@@ -224,6 +234,10 @@ class IncidentsState extends Equatable {
     List<IncidentModel>? myReports,
     String? myReportsErrorMessage,
     bool clearMyReportsError = false,
+    bool? relatedLoading,
+    List<IncidentRelatedModel>? relatedIncidents,
+    String? relatedErrorMessage,
+    bool clearRelatedError = false,
   }) {
     return IncidentsState(
       loading: loading ?? this.loading,
@@ -312,6 +326,9 @@ class IncidentsState extends Equatable {
       myReportsErrorMessage: clearMyReportsError
           ? null
           : myReportsErrorMessage ?? this.myReportsErrorMessage,
+      relatedLoading: relatedLoading ?? this.relatedLoading,
+      relatedIncidents: relatedIncidents ?? this.relatedIncidents,
+      relatedErrorMessage: clearRelatedError ? null : relatedErrorMessage ?? this.relatedErrorMessage,
     );
   }
 
@@ -363,5 +380,8 @@ class IncidentsState extends Equatable {
     myReportsLoading,
     myReports,
     myReportsErrorMessage,
+    relatedLoading,
+    relatedIncidents,
+    relatedErrorMessage,
   ];
 }

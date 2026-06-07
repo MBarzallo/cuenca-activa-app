@@ -6,7 +6,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../auth/logic/auth_cubit.dart';
 import '../../auth/logic/auth_state.dart';
 import '../../incidents/logic/incidents_cubit.dart';
-import '../../main/presentation/main_scaffold.dart';
 import 'widgets/home_list_view.dart';
 import 'widgets/home_map_view.dart';
 import 'widgets/home_view_toggle.dart';
@@ -40,16 +39,7 @@ class _HomePageState extends State<HomePage> {
           context.go('/');
         }
       },
-      child: MainScaffold(
-        currentIndex: 0,
-        title: 'Cuenca Activa',
-        actions: [
-          IconButton(
-            tooltip: 'Cerrar sesion',
-            onPressed: () => context.read<AuthCubit>().logout(),
-            icon: const Icon(Icons.logout_rounded),
-          ),
-        ],
+      child: Scaffold(
         body: SafeArea(
           bottom: false,
           child: switch (authState) {
@@ -63,19 +53,16 @@ class _HomePageState extends State<HomePage> {
                         child: Text(
                           _viewMode == HomeViewMode.map
                               ? 'Reportes cerca de ti'
-                              : 'Actividad ciudadana',
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                color: AppColors.navy,
+                              : 'Todos los reportes',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.w900,
+                                color: AppColors.navy,
                               ),
                         ),
                       ),
                       HomeViewToggle(
                         value: _viewMode,
-                        onChanged: (value) {
-                          setState(() => _viewMode = value);
-                        },
+                        onChanged: (mode) => setState(() => _viewMode = mode),
                       ),
                     ],
                   ),

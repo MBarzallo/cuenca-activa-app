@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../config/api_config.dart';
 import 'api_exception.dart';
@@ -19,9 +20,11 @@ class DioClient {
           },
         ),
       ) {
-    dio.interceptors.add(
-      LogInterceptor(requestBody: true, responseBody: true, error: true),
-    );
+    if (kDebugMode) {
+      dio.interceptors.add(
+        LogInterceptor(requestBody: true, responseBody: true, error: true),
+      );
+    }
   }
 
   Future<Response<T>> get<T>(

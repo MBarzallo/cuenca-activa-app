@@ -10,7 +10,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../auth/logic/auth_cubit.dart';
 import '../../auth/logic/auth_state.dart';
 import '../../home/presentation/widgets/home_shared_widgets.dart';
-import '../../main/presentation/main_scaffold.dart';
 import '../data/incident_comment_model.dart';
 import '../data/incident_completion_confirmation_model.dart';
 import '../data/incident_image_attachment.dart';
@@ -42,9 +41,8 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return MainScaffold(
-      currentIndex: 0,
-      title: 'Detalle',
+    return Scaffold(
+      appBar: AppBar(title: const Text('Detalle de incidencia')),
       body: SafeArea(
         bottom: false,
         child: BlocConsumer<IncidentsCubit, IncidentsState>(
@@ -122,8 +120,6 @@ class _IncidentDetailContent extends StatelessWidget {
         : '';
     final isOwner =
         currentUserId.isNotEmpty && currentUserId == incident.idUsuarioReporta;
-    print("por aqui el error");
-    print(isOwner);
     final date = incident.fechaReporte;
     final formattedDate = date == null
         ? 'Fecha no disponible'
@@ -238,6 +234,8 @@ class _IncidentDetailContent extends StatelessWidget {
         const SizedBox(height: 14),
         _LocationSection(incident: incident),
         const SizedBox(height: 14),
+        _RelatedIncidentsSection(incident: incident),
+        const SizedBox(height: 14),
         _CommentsSection(idIncidencia: incident.idIncidencia),
       ],
     );
@@ -309,21 +307,33 @@ class _ImageGallery extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  CachedNetworkImage(
-                    imageUrl: imageUrl,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(
-                      color: AppColors.lightGray,
-                      child: const Center(
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                    errorWidget: (context, url, error) => Container(
-                      color: AppColors.navy,
-                      child: const Center(
-                        child: Icon(
-                          Icons.broken_image_outlined,
-                          color: AppColors.gold,
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _showImageViewer(
+                          context,
+                          imageUrl: imageUrl,
+                          title: media?.nombreArchivo ?? 'Imagen de incidencia',
+                        ),
+                        child: CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
+                            color: AppColors.lightGray,
+                            child: const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: AppColors.navy,
+                            child: const Center(
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                color: AppColors.gold,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -381,6 +391,82 @@ class _ReportContentButton extends StatelessWidget {
   }
 }
 
+Future<void> _showImageViewer(
+  BuildContext context, {
+  required String imageUrl,
+  required String title,
+}) {
+  return showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.92),
+    builder: (dialogContext) {
+      return Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: SafeArea(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: InteractiveViewer(
+                  minScale: 0.8,
+                  maxScale: 4,
+                  child: Center(
+                    child: CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.contain,
+                      placeholder: (_, _) => const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      errorWidget: (_, _, _) => const Center(
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: AppColors.gold,
+                          size: 42,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 12,
+                left: 12,
+                right: 12,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title.trim().isEmpty ? 'Imagen' : title.trim(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: AppColors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Material(
+                      color: AppColors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      child: IconButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                        color: AppColors.white,
+                        tooltip: 'Cerrar',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class _ReportIconButton extends StatelessWidget {
   final String tooltip;
   final String tipoEntidad;
@@ -421,6 +507,7 @@ Future<void> _showReportContentSheet(
   required String tipoEntidad,
   required String idEntidad,
   required String title,
+  String? preselectedMotive,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -433,6 +520,7 @@ Future<void> _showReportContentSheet(
         tipoEntidad: tipoEntidad,
         idEntidad: idEntidad,
         title: title,
+        preselectedMotive: preselectedMotive,
       ),
     ),
   );
@@ -442,11 +530,13 @@ class _ReportContentSheet extends StatefulWidget {
   final String tipoEntidad;
   final String idEntidad;
   final String title;
+  final String? preselectedMotive;
 
   const _ReportContentSheet({
     required this.tipoEntidad,
     required this.idEntidad,
     required this.title,
+    this.preselectedMotive,
   });
 
   @override
@@ -459,11 +549,19 @@ class _ReportContentSheetState extends State<_ReportContentSheet> {
     'Información falsa',
     'Spam o publicidad',
     'Riesgo para la comunidad',
+    'Incidencia duplicada',
+    'Incidencia relacionada',
     'Otro',
   ];
 
   final _detalleController = TextEditingController();
-  String _motivo = _motivos.first;
+  late String _motivo;
+
+  @override
+  void initState() {
+    super.initState();
+    _motivo = widget.preselectedMotive ?? _motivos.first;
+  }
 
   @override
   void dispose() {
@@ -710,76 +808,88 @@ class _OwnerStatusAction extends StatelessWidget {
             .where((status) => status.codigo != incident.codigoEstado)
             .toList();
 
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: AppColors.gold.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(16),
+        return SizedBox(
+          height: 166,
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: AppColors.gold.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(
+                          Icons.edit_road_rounded,
+                          color: AppColors.gold,
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.edit_road_rounded,
-                        color: AppColors.gold,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Gestionar estado',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Gestionar estado',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w900),
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Como propietario puedes actualizar el avance de tu reporte.',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.textSecondary,
-                              height: 1.3,
+                            const SizedBox(height: 4),
+                            Text(
+                              'Como propietario puedes actualizar el avance de tu reporte.',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: AppColors.textSecondary,
+                                    height: 1.3,
+                                  ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.tonalIcon(
-                    onPressed:
-                    state.statusOptionsLoading ||
-                        state.statusChanging ||
-                        availableStatuses.isEmpty
-                        ? null
-                        : () => _showChangeStatusSheet(
-                      context,
-                      incident,
-                      availableStatuses,
-                    ),
-                    icon: state.statusChanging
-                        ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                        : const Icon(Icons.sync_alt_rounded),
-                    label: const Text('Cambiar'),
+                    ],
                   ),
-                ),
-              ],
+                  const Spacer(),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: FilledButton.tonalIcon(
+                      onPressed:
+                          state.statusOptionsLoading ||
+                              state.statusChanging ||
+                              availableStatuses.isEmpty
+                          ? null
+                          : () => _showChangeStatusSheet(
+                              context,
+                              incident,
+                              availableStatuses,
+                            ),
+                      icon: state.statusChanging
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.sync_alt_rounded),
+                      label: Text(
+                        state.statusOptionsLoading
+                            ? 'Cargando estados...'
+                            : 'Cambiar',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -1219,6 +1329,11 @@ class _LocationSection extends StatelessWidget {
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
+            if ((incident.nombreSector ?? '').trim().isNotEmpty)
+              _DetailRow(
+                icon: Icons.map_outlined,
+                text: 'Sector: ${incident.nombreSector!}',
+              ),
             if ((incident.direccionReferencial ?? '').trim().isNotEmpty)
               _DetailRow(
                 icon: Icons.place_outlined,
@@ -1849,22 +1964,34 @@ class _ConfirmationDetailCard extends StatelessWidget {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          CachedNetworkImage(
-                            imageUrl: media.downloadUrl,
-                            fit: BoxFit.cover,
-                            placeholder: (_, _) => Container(
-                              color: AppColors.lightGray,
-                              child: const Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => _showImageViewer(
+                                context,
+                                imageUrl: media.downloadUrl,
+                                title: media.nombreArchivo.isEmpty
+                                    ? 'Evidencia'
+                                    : media.nombreArchivo,
                               ),
-                            ),
-                            errorWidget: (_, _, _) => Container(
-                              color: AppColors.navy,
-                              child: const Icon(
-                                Icons.broken_image_outlined,
-                                color: AppColors.gold,
+                              child: CachedNetworkImage(
+                                imageUrl: media.downloadUrl,
+                                fit: BoxFit.cover,
+                                placeholder: (_, _) => Container(
+                                  color: AppColors.lightGray,
+                                  child: const Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (_, _, _) => Container(
+                                  color: AppColors.navy,
+                                  child: const Icon(
+                                    Icons.broken_image_outlined,
+                                    color: AppColors.gold,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -3179,6 +3306,275 @@ class _DetailLoadingView extends StatelessWidget {
         const SizedBox(height: 16),
         const IncidentLoadingList(),
       ],
+    );
+  }
+}
+
+class _RelatedIncidentsSection extends StatelessWidget {
+  final IncidentModel incident;
+
+  const _RelatedIncidentsSection({required this.incident});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<IncidentsCubit, IncidentsState>(
+      builder: (context, state) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.gold.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.link_rounded,
+                        color: AppColors.gold,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Incidencias Relacionadas',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Duplicados o reportes vinculados',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Actualizar',
+                      onPressed: state.relatedLoading
+                          ? null
+                          : () => context
+                                .read<IncidentsCubit>()
+                                .refreshRelatedIncidents(incident.idIncidencia),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (state.relatedLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                else if (state.relatedErrorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Column(
+                      children: [
+                        Text(
+                          state.relatedErrorMessage!,
+                          style: const TextStyle(color: AppColors.danger),
+                        ),
+                        const SizedBox(height: 8),
+                        ElevatedButton(
+                          onPressed: () => context
+                              .read<IncidentsCubit>()
+                              .refreshRelatedIncidents(incident.idIncidencia),
+                          child: const Text('Reintentar'),
+                        ),
+                      ],
+                    ),
+                  )
+                else ...[
+                  if (state.relatedIncidents.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 20,
+                        horizontal: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.lightGray.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.link_off_rounded,
+                            color: AppColors.textSecondary.withValues(
+                              alpha: 0.6,
+                            ),
+                            size: 32,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'No hay incidencias relacionadas vinculadas.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: state.relatedIncidents.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 16),
+                      itemBuilder: (context, index) {
+                        final related = state.relatedIncidents[index];
+                        final isDuplicated =
+                            related.tipoRelacion == 'DUPLICADA';
+
+                        return InkWell(
+                          onTap: () {
+                            context.push(
+                              '/incidents/${related.idIncidenciaRelacionada}',
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 6,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isDuplicated
+                                        ? AppColors.danger.withValues(
+                                            alpha: 0.1,
+                                          )
+                                        : AppColors.teal.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    isDuplicated ? 'DUPLICADA' : 'CAUSADA POR',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDuplicated
+                                          ? AppColors.danger
+                                          : AppColors.teal,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        related.titulo.isNotEmpty
+                                            ? related.titulo
+                                            : 'Incidencia sin título',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            related.nombreCategoria,
+                                            style: const TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          const Text(
+                                            '•',
+                                            style: TextStyle(
+                                              color: AppColors.textSecondary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            related.nombreEstado,
+                                            style: const TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (related.distanciaMetros > 0) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Distancia: ${related.distanciaMetros.toStringAsFixed(1)} m',
+                                          style: const TextStyle(
+                                            color: AppColors.textSecondary,
+                                            fontSize: 11,
+                                            fontStyle: FontStyle.italic,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        _showReportContentSheet(
+                          context,
+                          tipoEntidad: 'INCIDENCIA',
+                          idEntidad: incident.idIncidencia,
+                          title: 'Sugerir reporte duplicado',
+                          preselectedMotive: 'Incidencia duplicada',
+                        );
+                      },
+                      icon: const Icon(Icons.info_outline_rounded, size: 18),
+                      label: const Text(
+                        'Creo que este problema ya fue reportado',
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

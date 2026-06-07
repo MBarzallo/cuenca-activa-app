@@ -19,6 +19,8 @@ class IncidentModel {
   final int cantidadConfirmaciones;
   final DateTime? fechaReporte;
   final List<String> imagenes;
+  final String? idSector;
+  final String? nombreSector;
 
   const IncidentModel({
     required this.idIncidencia,
@@ -41,6 +43,8 @@ class IncidentModel {
     required this.cantidadConfirmaciones,
     required this.fechaReporte,
     required this.imagenes,
+    this.idSector,
+    this.nombreSector,
   });
 
   factory IncidentModel.fromJson(Map<String, dynamic> json) {
@@ -68,6 +72,8 @@ class IncidentModel {
           .map((image) => image.toString())
           .where((image) => image.isNotEmpty)
           .toList(),
+      idSector: json['idSector']?.toString(),
+      nombreSector: json['nombreSector']?.toString(),
     );
   }
 
@@ -78,6 +84,8 @@ class IncidentModel {
     int? cantidadSeguidores,
     int? cantidadConfirmaciones,
     List<String>? imagenes,
+    String? idSector,
+    String? nombreSector,
   }) {
     return IncidentModel(
       idIncidencia: idIncidencia,
@@ -101,6 +109,8 @@ class IncidentModel {
           cantidadConfirmaciones ?? this.cantidadConfirmaciones,
       fechaReporte: fechaReporte,
       imagenes: imagenes ?? this.imagenes,
+      idSector: idSector ?? this.idSector,
+      nombreSector: nombreSector ?? this.nombreSector,
     );
   }
 

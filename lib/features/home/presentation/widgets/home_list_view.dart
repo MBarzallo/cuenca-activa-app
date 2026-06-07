@@ -93,7 +93,7 @@ class HomeListView extends StatelessWidget {
                     return IncidentCard(
                       incident: incident,
                       onTap: () =>
-                          context.go('/incidents/${incident.idIncidencia}'),
+                          context.push('/incidents/${incident.idIncidencia}'),
                     );
                   },
                   separatorBuilder: (context, index) =>

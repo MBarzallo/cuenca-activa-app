@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../main/presentation/main_scaffold.dart';
 import '../data/app_notification_model.dart';
 import '../data/notification_preference_model.dart';
 import '../logic/notifications_cubit.dart';
@@ -39,20 +38,20 @@ class _NotificationsPageState extends State<NotificationsPage> {
         }
       },
       builder: (context, state) {
-        return MainScaffold(
-          currentIndex: 0,
-          title: 'Notificaciones',
-          showNotificationsAction: false,
-          actions: [
-            IconButton(
-              tooltip: 'Actualizar',
-              onPressed: state.loading
-                  ? null
-                  : () =>
-                        context.read<NotificationsCubit>().loadNotifications(),
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-          ],
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Notificaciones'),
+            actions: [
+              IconButton(
+                tooltip: 'Actualizar',
+                onPressed: state.loading
+                    ? null
+                    : () =>
+                          context.read<NotificationsCubit>().loadNotifications(),
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
           body: RefreshIndicator(
             onRefresh: () =>
                 context.read<NotificationsCubit>().loadNotifications(),
