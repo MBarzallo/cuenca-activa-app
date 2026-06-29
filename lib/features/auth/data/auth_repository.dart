@@ -199,6 +199,46 @@ class AuthRepository {
     return uploadTask.ref.getDownloadURL();
   }
 
+  Future<AuthUserModel> sincronizarTelefonoVerificado() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw ApiException(
+        statusCode: 401,
+        code: 'NO_FIREBASE_SESSION',
+        message: 'No existe una sesión activa en Firebase',
+      );
+    }
+
+    final token = await user.getIdToken(true);
+    if (token == null || token.isEmpty) {
+      throw ApiException(
+        statusCode: 401,
+        code: 'TOKEN_EMPTY',
+        message: 'No se pudo obtener el token de Firebase',
+      );
+    }
+
+    final response = await _safeRequest(() {
+      return _dioClient.post<Map<String, dynamic>>(
+        '/api/auth/phone/sync',
+        token: token,
+      );
+    });
+
+    return AuthUserModel.fromJson(response.data ?? {});
+  }
+
+  Future<void> verificarDisponibilidadTelefono(String phone) async {
+    final token = await _getIdToken();
+    await _safeRequest(() {
+      return _dioClient.get<void>(
+        '/api/auth/phone/check',
+        token: token,
+        queryParameters: {'telefono': phone},
+      );
+    });
+  }
+
   Future<void> logout() {
     return _firebaseAuth.signOut();
   }

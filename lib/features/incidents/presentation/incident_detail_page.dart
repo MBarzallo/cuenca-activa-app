@@ -1,10 +1,12 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../auth/logic/auth_cubit.dart';
@@ -41,69 +43,72 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Detalle de incidencia')),
-      body: SafeArea(
-        bottom: false,
-        child: BlocConsumer<IncidentsCubit, IncidentsState>(
-          listenWhen: (previous, current) =>
-              previous.statusChangeMessage != current.statusChangeMessage ||
-              previous.contentReportMessage != current.contentReportMessage,
-          listener: (context, state) {
-            final message =
-                state.statusChangeMessage ?? state.contentReportMessage;
-            if (message != null && message.isNotEmpty) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(message)));
-            }
-          },
-          builder: (context, state) {
-            if (state.detailLoading) {
-              return const _DetailLoadingView();
-            }
+    return BlocConsumer<IncidentsCubit, IncidentsState>(
+      listenWhen: (previous, current) =>
+          previous.statusChangeMessage != current.statusChangeMessage ||
+          previous.contentReportMessage != current.contentReportMessage,
+      listener: (context, state) {
+        final message =
+            state.statusChangeMessage ?? state.contentReportMessage;
+        if (message != null && message.isNotEmpty) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
+      },
+      builder: (context, state) {
+        if (state.detailLoading) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Detalle')),
+            body: const _DetailLoadingView(),
+          );
+        }
 
-            if (state.detailErrorMessage != null) {
-              return Padding(
-                padding: const EdgeInsets.all(20),
-                child: HomeInfoState(
-                  icon: Icons.cloud_off_rounded,
-                  title: 'No pudimos cargar el detalle',
-                  message: state.detailErrorMessage!,
-                  actionLabel: 'Reintentar',
-                  onAction: () => context
-                      .read<IncidentsCubit>()
-                      .loadIncidentDetail(widget.idIncidencia),
-                ),
-              );
-            }
+        if (state.detailErrorMessage != null) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Detalle')),
+            body: Padding(
+              padding: const EdgeInsets.all(20),
+              child: HomeInfoState(
+                icon: Icons.cloud_off_rounded,
+                title: 'No pudimos cargar el detalle',
+                message: state.detailErrorMessage!,
+                actionLabel: 'Reintentar',
+                onAction: () => context
+                    .read<IncidentsCubit>()
+                    .loadIncidentDetail(widget.idIncidencia),
+              ),
+            ),
+          );
+        }
 
-            final incident = state.selectedIncident;
-            if (incident == null) {
-              return Padding(
-                padding: const EdgeInsets.all(20),
-                child: HomeInfoState(
-                  icon: Icons.report_problem_outlined,
-                  title: 'Incidencia no disponible',
-                  message: 'No encontramos información para esta incidencia.',
-                  actionLabel: 'Volver',
-                  onAction: () => context.pop(),
-                ),
-              );
-            }
+        final incident = state.selectedIncident;
+        if (incident == null) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Detalle')),
+            body: Padding(
+              padding: const EdgeInsets.all(20),
+              child: HomeInfoState(
+                icon: Icons.report_problem_outlined,
+                title: 'Incidencia no disponible',
+                message: 'No encontramos información para esta incidencia.',
+                actionLabel: 'Volver',
+                onAction: () => context.pop(),
+              ),
+            ),
+          );
+        }
 
-            return _IncidentDetailContent(
-              incident: incident,
-              multimedia: state.selectedIncidentMultimedia,
-            );
-          },
-        ),
-      ),
+        return _IncidentDetailContent(
+          incident: incident,
+          multimedia: state.selectedIncidentMultimedia,
+        );
+      },
     );
   }
 }
 
-class _IncidentDetailContent extends StatelessWidget {
+class _IncidentDetailContent extends StatefulWidget {
   final IncidentModel incident;
   final List<MultimediaModel> multimedia;
 
@@ -113,131 +118,370 @@ class _IncidentDetailContent extends StatelessWidget {
   });
 
   @override
+  State<_IncidentDetailContent> createState() => _IncidentDetailContentState();
+}
+
+class _IncidentDetailContentState extends State<_IncidentDetailContent> {
+  int _activeTab = 0;
+
+  void _showVoteSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<IncidentsCubit>(),
+        child: _VoteSheet(incident: widget.incident),
+      ),
+    );
+  }
+
+  void _showChangeStatusSheet(
+    BuildContext context,
+    List<IncidentStatusOptionModel> statuses,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        return BlocProvider.value(
+          value: context.read<IncidentsCubit>(),
+          child: _ChangeStatusSheet(incident: widget.incident, statuses: statuses),
+        );
+      },
+    );
+  }
+
+  Widget _buildTabButton(int index, String label) {
+    final isActive = _activeTab == index;
+    return Expanded(
+      child: InkWell(
+        onTap: () => setState(() => _activeTab = index),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isActive ? AppColors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: AppColors.navy.withValues(alpha: 0.08),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isActive ? AppColors.teal : AppColors.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final authState = context.watch<AuthCubit>().state;
     final currentUserId = authState is AuthAuthenticated
         ? authState.user.idUsuario
         : '';
     final isOwner =
-        currentUserId.isNotEmpty && currentUserId == incident.idUsuarioReporta;
-    final date = incident.fechaReporte;
+        currentUserId.isNotEmpty && currentUserId == widget.incident.idUsuarioReporta;
+    final date = widget.incident.fechaReporte;
     final formattedDate = date == null
         ? 'Fecha no disponible'
         : DateFormat('dd MMM yyyy, HH:mm').format(date.toLocal());
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
-      children: [
-        _ImageGallery(images: incident.imagenes, multimedia: multimedia),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return BlocBuilder<IncidentsCubit, IncidentsState>(
+      builder: (context, state) {
+        final following = state.followStatus?.siguiendo == true;
+        final availableStatuses = state.statusOptions
+            .where((status) => status.codigo != widget.incident.codigoEstado)
+            .toList();
+
+        Widget? bottomBar;
+        final isFinalState = _isFinalIncidentState(widget.incident);
+        if (!isFinalState) {
+          final Widget button;
+          if (isOwner) {
+            if (availableStatuses.isNotEmpty) {
+              button = FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: state.statusChanging
+                    ? null
+                    : () => _showChangeStatusSheet(context, availableStatuses),
+                icon: state.statusChanging
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.sync_alt_rounded),
+                label: const Text('Cambiar estado de incidencia'),
+              );
+              bottomBar = Container(
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.navy.withValues(alpha: 0.06),
+                      blurRadius: 10,
+                      offset: const Offset(0, -4),
+                    ),
+                  ],
+                ),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    child: SizedBox(height: 48, child: button),
+                  ),
+                ),
+              );
+            }
+          } else if (!following) {
+            button = FilledButton.icon(
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onPressed: state.followActionLoading
+                  ? null
+                  : () => context.read<IncidentsCubit>().followIncident(widget.incident.idIncidencia),
+              icon: state.followActionLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.notifications_active_rounded),
+              label: const Text('Seguir este reporte'),
+            );
+            bottomBar = Container(
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.navy.withValues(alpha: 0.06),
+                    blurRadius: 10,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: SizedBox(height: 48, child: button),
+                ),
+              ),
+            );
+          } else {
+            button = FilledButton.icon(
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onPressed: () => _showVoteSheet(context),
+              icon: const Icon(Icons.how_to_vote_rounded),
+              label: const Text('Validar esta incidencia'),
+            );
+            bottomBar = Container(
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.navy.withValues(alpha: 0.06),
+                    blurRadius: 10,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: SizedBox(height: 48, child: button),
+                ),
+              ),
+            );
+          }
+        }
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Detalle'),
+            actions: [
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert_rounded),
+                onSelected: (value) {
+                  if (value == 'denunciar') {
+                    _showReportContentSheet(
+                      context,
+                      tipoEntidad: 'INCIDENCIA',
+                      idEntidad: widget.incident.idIncidencia,
+                      title: 'Denunciar incidencia',
+                    );
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'denunciar',
+                    child: Row(
+                      children: [
+                        Icon(Icons.flag_outlined, color: AppColors.danger, size: 20),
+                        SizedBox(width: 8),
+                        Text('Denunciar reporte', style: TextStyle(color: AppColors.danger)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          body: SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    IncidentCategoryIcon(
-                      category: incident.nombreCategoria,
-                      size: 54,
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            incident.titulo.isEmpty
-                                ? 'Incidencia sin titulo'
-                                : incident.titulo,
-                            style: Theme.of(context).textTheme.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.w900),
+                _ImageGallery(images: widget.incident.imagenes, multimedia: widget.multimedia),
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            IncidentCategoryIcon(
+                              category: widget.incident.nombreCategoria,
+                              size: 44,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.incident.titulo.isEmpty
+                                        ? 'Incidencia sin título'
+                                        : widget.incident.titulo,
+                                    style: Theme.of(context).textTheme.titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w900),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    widget.incident.nombreCategoria,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: AppColors.textSecondary,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          widget.incident.descripcion.isEmpty
+                              ? 'Sin descripción disponible.'
+                              : widget.incident.descripcion,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.textSecondary,
+                            height: 1.3,
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            incident.nombreCategoria,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            StatusChip(
+                              icon: Icons.flag_rounded,
+                              label: widget.incident.nombreEstado,
+                              color: AppColors.teal,
+                            ),
+                            StatusChip(
+                              icon: Icons.person_outline_rounded,
+                              label: widget.incident.aliasUsuarioReporta.isEmpty
+                                  ? 'Ciudadano'
+                                  : '@${widget.incident.aliasUsuarioReporta}',
+                              color: AppColors.textSecondary,
+                            ),
+                            StatusChip(
+                              icon: Icons.schedule_rounded,
+                              label: formattedDate,
+                              color: AppColors.textSecondary,
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  incident.descripcion.isEmpty
-                      ? 'Sin descripción disponible.'
-                      : incident.descripcion,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: AppColors.textSecondary,
-                    height: 1.38,
                   ),
                 ),
-                const SizedBox(height: 18),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    StatusChip(
-                      icon: Icons.flag_rounded,
-                      label: incident.nombreEstado,
-                      color: AppColors.teal,
+                const SizedBox(height: 12),
+                _MetricsSection(incident: widget.incident),
+                const SizedBox(height: 12),
+                _QuickActionsSection(incident: widget.incident),
+                const SizedBox(height: 8),
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGray.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Row(
+                      children: [
+                        _buildTabButton(0, 'Resumen'),
+                        _buildTabButton(1, 'Comunidad'),
+                        _buildTabButton(2, 'Seguimiento'),
+                      ],
                     ),
-                    StatusChip(
-                      icon: Icons.person_outline_rounded,
-                      label: incident.aliasUsuarioReporta.isEmpty
-                          ? 'Ciudadano'
-                          : '@${incident.aliasUsuarioReporta}',
-                      color: AppColors.textSecondary,
-                    ),
-                    StatusChip(
-                      icon: Icons.schedule_rounded,
-                      label: formattedDate,
-                      color: AppColors.textSecondary,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: _ReportContentButton(
-                    label: 'Denunciar reporte',
-                    tipoEntidad: 'INCIDENCIA',
-                    idEntidad: incident.idIncidencia,
-                    title: 'Denunciar incidencia',
                   ),
                 ),
+                const SizedBox(height: 8),
+                if (_activeTab == 0) ...[
+                  _LocationSection(incident: widget.incident),
+                ] else if (_activeTab == 1) ...[
+                  _VoteSection(incident: widget.incident),
+                  const SizedBox(height: 12),
+                  _CommentsSection(idIncidencia: widget.incident.idIncidencia),
+                  const SizedBox(height: 12),
+                  _RelatedIncidentsSection(incident: widget.incident),
+                ] else ...[
+                  _CompletionSection(incident: widget.incident),
+                  const SizedBox(height: 12),
+                  _StatusHistorySection(idIncidencia: widget.incident.idIncidencia),
+                  if (isOwner) ...[
+                    const SizedBox(height: 12),
+                    _OwnerStatusAction(incident: widget.incident),
+                  ],
+                ],
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _MetricsSection(incident: incident),
-        if (isOwner) ...[
-          const SizedBox(height: 14),
-          _OwnerStatusAction(incident: incident),
-        ],
-        const SizedBox(height: 14),
-        _StatusHistorySection(idIncidencia: incident.idIncidencia),
-        const SizedBox(height: 14),
-        _FollowSection(incident: incident),
-        const SizedBox(height: 14),
-        _VoteSection(incident: incident),
-        const SizedBox(height: 14),
-        _CompletionSection(incident: incident),
-        const SizedBox(height: 14),
-        _LocationSection(incident: incident),
-        const SizedBox(height: 14),
-        _RelatedIncidentsSection(incident: incident),
-        const SizedBox(height: 14),
-        _CommentsSection(idIncidencia: incident.idIncidencia),
-      ],
+          bottomNavigationBar: bottomBar,
+        );
+      },
     );
   }
 }
@@ -252,33 +496,34 @@ class _ImageGallery extends StatelessWidget {
   Widget build(BuildContext context) {
     if (images.isEmpty) {
       return Container(
-        height: 180,
+        height: 120, // Compact height 120 px
         decoration: BoxDecoration(
           color: AppColors.navy,
-          borderRadius: BorderRadius.circular(26),
+          borderRadius: BorderRadius.circular(20),
         ),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 58,
-                height: 58,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
                   color: AppColors.white.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.image_not_supported_outlined,
                   color: AppColors.gold,
+                  size: 20,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
                 'Sin imágenes adjuntas',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: AppColors.white,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ],
@@ -293,7 +538,7 @@ class _ImageGallery extends StatelessWidget {
     final itemCount = mediaItems.isNotEmpty ? mediaItems.length : images.length;
 
     return SizedBox(
-      height: 220,
+      height: 200,
       child: PageView.builder(
         itemCount: itemCount,
         itemBuilder: (context, index) {
@@ -303,7 +548,7 @@ class _ImageGallery extends StatelessWidget {
           return Padding(
             padding: EdgeInsets.only(right: index == itemCount - 1 ? 0 : 10),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(26),
+              borderRadius: BorderRadius.circular(20),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -359,37 +604,7 @@ class _ImageGallery extends StatelessWidget {
   }
 }
 
-class _ReportContentButton extends StatelessWidget {
-  final String label;
-  final String tipoEntidad;
-  final String idEntidad;
-  final String title;
 
-  const _ReportContentButton({
-    required this.label,
-    required this.tipoEntidad,
-    required this.idEntidad,
-    required this.title,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextButton.icon(
-      onPressed: () => _showReportContentSheet(
-        context,
-        tipoEntidad: tipoEntidad,
-        idEntidad: idEntidad,
-        title: title,
-      ),
-      icon: const Icon(Icons.flag_outlined, size: 18),
-      label: Text(label),
-      style: TextButton.styleFrom(
-        foregroundColor: AppColors.danger,
-        visualDensity: VisualDensity.compact,
-      ),
-    );
-  }
-}
 
 Future<void> _showImageViewer(
   BuildContext context, {
@@ -717,83 +932,73 @@ class _MetricsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _MetricCard(
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppColors.lightGray.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildCompactMetric(
+            context,
             icon: Icons.check_circle_outline_rounded,
-            label: 'Confirmaciones',
             value: incident.cantidadConfirmaciones,
+            label: 'Confirmaciones',
             color: AppColors.success,
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _MetricCard(
+          _buildCompactMetric(
+            context,
             icon: Icons.comment_outlined,
-            label: 'Comentarios',
             value: incident.cantidadComentarios,
+            label: 'Comentarios',
             color: AppColors.teal,
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _MetricCard(
-            icon: Icons.visibility_outlined,
-            label: 'Seguidores',
+          _buildCompactMetric(
+            context,
+            icon: Icons.notifications_none_rounded,
             value: incident.cantidadSeguidores,
+            label: 'Seguidores',
             color: AppColors.gold,
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactMetric(
+    BuildContext context, {
+    required IconData icon,
+    required int value,
+    required String label,
+    required Color color,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: color, size: 16),
+        const SizedBox(width: 4),
+        Text(
+          '$value',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label.toLowerCase(),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 11,
+              ),
         ),
       ],
     );
   }
 }
 
-class _MetricCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int value;
-  final Color color;
 
-  const _MetricCard({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(height: 8),
-            Text(
-              '$value',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _OwnerStatusAction extends StatelessWidget {
   final IncidentModel incident;
@@ -808,88 +1013,72 @@ class _OwnerStatusAction extends StatelessWidget {
             .where((status) => status.codigo != incident.codigoEstado)
             .toList();
 
-        return SizedBox(
-          height: 166,
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: AppColors.gold.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Icon(
-                          Icons.edit_road_rounded,
-                          color: AppColors.gold,
-                        ),
+        if (availableStatuses.isEmpty) return const SizedBox.shrink();
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: AppColors.gold.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Gestionar estado',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w900),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Como propietario puedes actualizar el avance de tu reporte.',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: AppColors.textSecondary,
-                                    height: 1.3,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: FilledButton.tonalIcon(
-                      onPressed:
-                          state.statusOptionsLoading ||
-                              state.statusChanging ||
-                              availableStatuses.isEmpty
-                          ? null
-                          : () => _showChangeStatusSheet(
-                              context,
-                              incident,
-                              availableStatuses,
-                            ),
-                      icon: state.statusChanging
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.sync_alt_rounded),
-                      label: Text(
-                        state.statusOptionsLoading
-                            ? 'Cargando estados...'
-                            : 'Cambiar',
+                      child: const Icon(
+                        Icons.edit_road_rounded,
+                        color: AppColors.gold,
+                        size: 20,
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Gestionar estado',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          Text(
+                            'Actualizar el avance del reporte',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: state.statusOptionsLoading || state.statusChanging
+                        ? null
+                        : () => _showChangeStatusSheet(context, availableStatuses),
+                    icon: state.statusChanging
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync_alt_rounded, size: 16),
+                    label: Text(
+                      state.statusOptionsLoading ? 'Cargando estados...' : 'Cambiar estado',
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         );
@@ -899,12 +1088,13 @@ class _OwnerStatusAction extends StatelessWidget {
 
   void _showChangeStatusSheet(
     BuildContext context,
-    IncidentModel incident,
     List<IncidentStatusOptionModel> statuses,
   ) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
       builder: (_) {
         return BlocProvider.value(
           value: context.read<IncidentsCubit>(),
@@ -948,173 +1138,222 @@ class _ChangeStatusSheetState extends State<_ChangeStatusSheet> {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 20),
-      child: BlocBuilder<IncidentsCubit, IncidentsState>(
-        builder: (context, state) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.lightGray,
-                    borderRadius: BorderRadius.circular(99),
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: BlocBuilder<IncidentsCubit, IncidentsState>(
+          builder: (context, state) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGray,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Cambiar estado',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                widget.incident.titulo,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
+                const SizedBox(height: 18),
+                Text(
+                  'Cambiar estado',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
-              ),
-              const SizedBox(height: 18),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedStatusCode,
-                decoration: const InputDecoration(
-                  labelText: 'Nuevo estado',
-                  prefixIcon: Icon(Icons.flag_outlined),
+                const SizedBox(height: 6),
+                Text(
+                  widget.incident.titulo,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-                items: widget.statuses.map((status) {
-                  return DropdownMenuItem<String>(
-                    value: status.codigo,
-                    child: Text(status.nombre),
-                  );
-                }).toList(),
-                onChanged: state.statusChanging
-                    ? null
-                    : (value) => setState(() => _selectedStatusCode = value),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _observationController,
-                enabled: !state.statusChanging,
-                maxLines: 3,
-                maxLength: 500,
-                decoration: const InputDecoration(
-                  labelText: 'Observación opcional',
-                  hintText: 'Ej. Ya fue atendido parcialmente',
-                  prefixIcon: Icon(Icons.notes_rounded),
+                const SizedBox(height: 18),
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedStatusCode,
+                  decoration: const InputDecoration(
+                    labelText: 'Nuevo estado',
+                    prefixIcon: Icon(Icons.flag_outlined),
+                  ),
+                  items: widget.statuses.map((status) {
+                    return DropdownMenuItem<String>(
+                      value: status.codigo,
+                      child: Text(status.nombre),
+                    );
+                  }).toList(),
+                  onChanged: state.statusChanging
+                      ? null
+                      : (value) => setState(() => _selectedStatusCode = value),
                 ),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: state.statusChanging || _selectedStatusCode == null
-                    ? null
-                    : () async {
-                        await context
-                            .read<IncidentsCubit>()
-                            .changeIncidentStatus(
-                              idIncidencia: widget.incident.idIncidencia,
-                              codigoEstado: _selectedStatusCode!,
-                              observacion: _observationController.text,
-                            );
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _observationController,
+                  enabled: !state.statusChanging,
+                  maxLines: 3,
+                  maxLength: 500,
+                  decoration: const InputDecoration(
+                    labelText: 'Observación opcional',
+                    hintText: 'Ej. Ya fue atendido parcialmente',
+                    prefixIcon: Icon(Icons.notes_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: state.statusChanging || _selectedStatusCode == null
+                      ? null
+                      : () async {
+                          await context
+                              .read<IncidentsCubit>()
+                              .changeIncidentStatus(
+                                idIncidencia: widget.incident.idIncidencia,
+                                codigoEstado: _selectedStatusCode!,
+                                observacion: _observationController.text,
+                              );
 
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
-                        }
-                      },
-                icon: state.statusChanging
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.check_rounded),
-                label: const Text('Guardar estado'),
-              ),
-            ],
-          );
-        },
+                          if (context.mounted) {
+                            Navigator.of(context).pop();
+                          }
+                        },
+                  icon: state.statusChanging
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_rounded),
+                  label: const Text('Guardar estado'),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 }
 
-class _StatusHistorySection extends StatelessWidget {
+class _StatusHistorySection extends StatefulWidget {
   final String idIncidencia;
 
   const _StatusHistorySection({required this.idIncidencia});
 
   @override
+  State<_StatusHistorySection> createState() => _StatusHistorySectionState();
+}
+
+class _StatusHistorySectionState extends State<_StatusHistorySection> {
+  bool _isExpanded = false;
+
+  @override
   Widget build(BuildContext context) {
     return BlocBuilder<IncidentsCubit, IncidentsState>(
       builder: (context, state) {
+        final history = state.statusHistory;
+
         return Card(
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 42,
-                      height: 42,
+                      width: 38,
+                      height: 38,
                       decoration: BoxDecoration(
                         color: AppColors.teal.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(15),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Icon(
                         Icons.timeline_rounded,
                         color: AppColors.teal,
+                        size: 20,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         'Historial de estado',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w900),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
                       ),
                     ),
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       tooltip: 'Actualizar historial',
                       onPressed: state.statusHistoryLoading
                           ? null
                           : () => context
                                 .read<IncidentsCubit>()
-                                .refreshIncidentStatusHistory(idIncidencia),
-                      icon: const Icon(Icons.refresh_rounded),
+                                .refreshIncidentStatusHistory(widget.idIncidencia),
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
                 if (state.statusHistoryLoading)
                   const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 18),
-                    child: Center(child: CircularProgressIndicator()),
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
                   )
                 else if (state.statusHistoryErrorMessage != null)
                   _InlineErrorState(
                     message: state.statusHistoryErrorMessage!,
                     onRetry: () => context
                         .read<IncidentsCubit>()
-                        .refreshIncidentStatusHistory(idIncidencia),
+                        .refreshIncidentStatusHistory(widget.idIncidencia),
                   )
-                else if (state.statusHistory.isEmpty)
+                else if (history.isEmpty)
                   const _InlineEmptyState(
                     icon: Icons.history_toggle_off_rounded,
-                    message: 'Todavía no hay cambios de estado registrados.',
+                    message: 'Sin cambios de estado registrados.',
                   )
-                else
-                  ...state.statusHistory.map((item) {
-                    final isLast = item == state.statusHistory.last;
-                    return _StatusHistoryItem(item: item, isLast: isLast);
-                  }),
+                else ...[
+                  if (!_isExpanded) ...[
+                    _StatusHistoryItem(item: history.first, isLast: true),
+                    if (history.length > 1)
+                      Center(
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          onPressed: () => setState(() => _isExpanded = true),
+                          icon: const Icon(Icons.expand_more_rounded, size: 16),
+                          label: const Text('Ver historial completo'),
+                        ),
+                      ),
+                  ] else ...[
+                    ...history.map((item) {
+                      final isLast = item == history.last;
+                      return _StatusHistoryItem(item: item, isLast: isLast);
+                    }),
+                    Center(
+                      child: TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () => setState(() => _isExpanded = false),
+                        icon: const Icon(Icons.expand_less_rounded, size: 16),
+                        label: const Text('Colapsar historial'),
+                      ),
+                    ),
+                  ],
+                ],
               ],
             ),
           ),
@@ -1313,20 +1552,19 @@ class _LocationSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasCoordinates =
-        incident.latitud != null && incident.longitud != null;
+    final lat = incident.latitud;
+    final lng = incident.longitud;
+    final hasCoordinates = lat != null && lng != null;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Ubicación',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
             if ((incident.nombreSector ?? '').trim().isNotEmpty)
@@ -1339,17 +1577,62 @@ class _LocationSection extends StatelessWidget {
                 icon: Icons.place_outlined,
                 text: incident.direccionReferencial!,
               ),
-            if (hasCoordinates)
-              _DetailRow(
-                icon: Icons.my_location_rounded,
-                text:
-                    '${incident.latitud!.toStringAsFixed(6)}, ${incident.longitud!.toStringAsFixed(6)}',
-              )
-            else
-              const _DetailRow(
-                icon: Icons.location_off_outlined,
-                text: 'Coordenadas no disponibles',
+            if (hasCoordinates) ...[
+              const SizedBox(height: 12),
+              Container(
+                height: 130, // Mini map compact height
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.lightGray),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: FlutterMap(
+                    options: MapOptions(
+                      initialCenter: LatLng(lat, lng),
+                      initialZoom: 15,
+                      minZoom: 10,
+                      maxZoom: 18,
+                      interactionOptions: const InteractionOptions(
+                        flags: InteractiveFlag.none,
+                      ),
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.example.cuenca_activa_app',
+                      ),
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: LatLng(lat, lng),
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.location_on_rounded,
+                              color: AppColors.danger,
+                              size: 28,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                        fontSize: 10,
+                      ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1357,203 +1640,90 @@ class _LocationSection extends StatelessWidget {
   }
 }
 
-class _CompletionSection extends StatefulWidget {
+class _CompletionSection extends StatelessWidget {
   final IncidentModel incident;
 
   const _CompletionSection({required this.incident});
 
-  @override
-  State<_CompletionSection> createState() => _CompletionSectionState();
-}
-
-class _CompletionSectionState extends State<_CompletionSection> {
-  final TextEditingController _observationController = TextEditingController();
-  final ImagePicker _imagePicker = ImagePicker();
-  double? _latitude;
-  double? _longitude;
-  XFile? _selectedImage;
-  bool _locating = false;
-
-  @override
-  void dispose() {
-    _observationController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _useCurrentLocation() async {
-    setState(() => _locating = true);
-
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _showMessage('Activa la ubicación para adjuntarla.');
-        return;
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        _showMessage('No tenemos permiso para leer tu ubicación.');
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _latitude = position.latitude;
-        _longitude = position.longitude;
-      });
-    } catch (_) {
-      _showMessage('No se pudo obtener tu ubicación.');
-    } finally {
-      if (mounted) {
-        setState(() => _locating = false);
-      }
-    }
-  }
-
-  Future<void> _submitConfirmation() async {
-    final created = await context
-        .read<IncidentsCubit>()
-        .createCompletionConfirmation(
-          idIncidencia: widget.incident.idIncidencia,
-          observacion: _observationController.text,
-          latitud: _latitude,
-          longitud: _longitude,
-          imageAttachment: _selectedImage == null
-              ? null
-              : IncidentImageAttachment(_selectedImage!),
-        );
-
-    if (created && mounted) {
-      _observationController.clear();
-      setState(() => _selectedImage = null);
-      FocusScope.of(context).unfocus();
-    }
-  }
-
-  Future<void> _pickImage(ImageSource source) async {
-    try {
-      final image = await _imagePicker.pickImage(
-        source: source,
-        imageQuality: 82,
-        maxWidth: 1800,
-      );
-
-      if (image == null) {
-        return;
-      }
-
-      setState(() => _selectedImage = image);
-    } catch (_) {
-      _showMessage('No se pudo seleccionar la imagen.');
-    }
-  }
-
-  void _clearImage() {
-    setState(() => _selectedImage = null);
-  }
-
-  void _clearLocation() {
-    setState(() {
-      _latitude = null;
-      _longitude = null;
-    });
-  }
-
-  void _showMessage(String message) {
-    if (!mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  void _showCompletionSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<IncidentsCubit>(),
+        child: _CompletionSheet(incident: incident),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<IncidentsCubit, IncidentsState>(
       builder: (context, state) {
-        final summary =
-            state.completionSummary ??
-            const IncidentCompletionSummaryModel.empty();
+        final summary = state.completionSummary ?? const IncidentCompletionSummaryModel.empty();
         final userConfirmation = summary.confirmacionUsuario;
-        final isFinalState = _isFinalIncidentState(widget.incident);
+        final isFinalState = _isFinalIncidentState(incident);
 
         return Card(
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 42,
-                      height: 42,
+                      width: 38,
+                      height: 38,
                       decoration: BoxDecoration(
                         color: AppColors.success.withValues(alpha: 0.11),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Icon(
                         Icons.task_alt_rounded,
                         color: AppColors.success,
+                        size: 20,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'Confirmar completado',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w900),
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
                           ),
-                          const SizedBox(height: 2),
                           Text(
                             '${summary.totalConfirmaciones} confirmaciones registradas',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       onPressed: state.completionSummaryLoading
                           ? null
                           : () => context
                                 .read<IncidentsCubit>()
-                                .refreshIncidentCompletionSummary(
-                                  widget.incident.idIncidencia,
-                                ),
-                      icon: const Icon(Icons.refresh_rounded),
-                      tooltip: 'Actualizar confirmaciones',
+                                .refreshIncidentCompletionSummary(incident.idIncidencia),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 if (state.completionSummaryLoading)
                   const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 18),
+                    padding: EdgeInsets.symmetric(vertical: 10),
                     child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     ),
                   )
                 else if (state.completionSummaryErrorMessage != null)
@@ -1561,41 +1731,33 @@ class _CompletionSectionState extends State<_CompletionSection> {
                     message: state.completionSummaryErrorMessage!,
                     onRetry: () => context
                         .read<IncidentsCubit>()
-                        .refreshIncidentCompletionSummary(
-                          widget.incident.idIncidencia,
-                        ),
+                        .refreshIncidentCompletionSummary(incident.idIncidencia),
                   )
                 else ...[
                   if (isFinalState)
                     const _InlineEmptyState(
                       icon: Icons.verified_rounded,
-                      message:
-                          'La incidencia ya está en un estado final. Las confirmaciones quedan como historial.',
+                      message: 'La incidencia ya está resuelta.',
                     )
-                  else if (summary.usuarioYaConfirmo &&
-                      userConfirmation != null)
+                  else if (summary.usuarioYaConfirmo && userConfirmation != null)
                     _AlreadyConfirmedState(confirmation: userConfirmation)
                   else
-                    _CompletionComposer(
-                      observationController: _observationController,
-                      latitude: _latitude,
-                      longitude: _longitude,
-                      selectedImage: _selectedImage,
-                      locating: _locating,
-                      submitting: state.completionSubmitting,
-                      errorMessage: state.completionSubmitMessage,
-                      onUseLocation: _useCurrentLocation,
-                      onClearLocation: _clearLocation,
-                      onPickCamera: () => _pickImage(ImageSource.camera),
-                      onPickGallery: () => _pickImage(ImageSource.gallery),
-                      onClearImage: _clearImage,
-                      onSubmit: _submitConfirmation,
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => _showCompletionSheet(context),
+                        icon: const Icon(Icons.verified_rounded, size: 16),
+                        label: const Text('Confirmar completado'),
+                      ),
                     ),
                   if (state.recentConfirmations.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _RecentConfirmationsList(
-                      confirmations: state.recentConfirmations,
-                    ),
+                    const SizedBox(height: 12),
+                    _RecentConfirmationsList(confirmations: state.recentConfirmations),
                   ],
                 ],
               ],
@@ -2117,296 +2279,92 @@ class _CompletionErrorState extends StatelessWidget {
   }
 }
 
-class _FollowSection extends StatelessWidget {
-  final IncidentModel incident;
 
-  const _FollowSection({required this.incident});
 
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<IncidentsCubit, IncidentsState>(
-      builder: (context, state) {
-        final following = state.followStatus?.siguiendo == true;
-
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.navy.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        following
-                            ? Icons.notifications_active_outlined
-                            : Icons.notifications_none_rounded,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            following
-                                ? 'Siguiendo esta incidencia'
-                                : 'Seguir incidencia',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${incident.cantidadSeguidores} personas siguen este reporte',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                if (state.followStatusLoading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 10),
-                    child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                else if (state.followStatusErrorMessage != null)
-                  _FollowErrorState(
-                    message: state.followStatusErrorMessage!,
-                    onRetry: () => context
-                        .read<IncidentsCubit>()
-                        .refreshIncidentFollowStatus(incident.idIncidencia),
-                  )
-                else ...[
-                  Text(
-                    following
-                        ? 'Recibirás el estado actualizado cuando haya actividad relevante.'
-                        : 'Guarda este reporte para darle seguimiento desde tu cuenta.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textSecondary,
-                      height: 1.35,
-                    ),
-                  ),
-                  if (state.followActionMessage != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      state.followActionMessage!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.danger,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: following
-                        ? OutlinedButton.icon(
-                            onPressed: state.followActionLoading
-                                ? null
-                                : () => context
-                                      .read<IncidentsCubit>()
-                                      .unfollowIncident(incident.idIncidencia),
-                            icon: state.followActionLoading
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.notifications_off_outlined),
-                            label: Text(
-                              state.followActionLoading
-                                  ? 'Actualizando...'
-                                  : 'Dejar de seguir',
-                            ),
-                          )
-                        : FilledButton.icon(
-                            onPressed: state.followActionLoading
-                                ? null
-                                : () => context
-                                      .read<IncidentsCubit>()
-                                      .followIncident(incident.idIncidencia),
-                            icon: state.followActionLoading
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.notifications_active_rounded,
-                                  ),
-                            label: Text(
-                              state.followActionLoading
-                                  ? 'Actualizando...'
-                                  : 'Seguir reporte',
-                            ),
-                          ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _FollowErrorState extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-
-  const _FollowErrorState({required this.message, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.danger.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          const Icon(Icons.cloud_off_rounded, color: AppColors.danger),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextButton(onPressed: onRetry, child: const Text('Reintentar')),
-        ],
-      ),
-    );
-  }
-}
-
-class _VoteSection extends StatefulWidget {
+class _VoteSection extends StatelessWidget {
   final IncidentModel incident;
 
   const _VoteSection({required this.incident});
 
-  @override
-  State<_VoteSection> createState() => _VoteSectionState();
-}
-
-class _VoteSectionState extends State<_VoteSection> {
-  final TextEditingController _observationController = TextEditingController();
-  String _selectedVoteType = 'CONFIRMA_EXISTENCIA';
-
-  @override
-  void dispose() {
-    _observationController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submitVote() async {
-    final created = await context.read<IncidentsCubit>().createIncidentVote(
-      idIncidencia: widget.incident.idIncidencia,
-      tipoVoto: _selectedVoteType,
-      observacion: _observationController.text,
+  void _showVoteSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<IncidentsCubit>(),
+        child: _VoteSheet(incident: incident),
+      ),
     );
-
-    if (created && mounted) {
-      _observationController.clear();
-      FocusScope.of(context).unfocus();
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<IncidentsCubit, IncidentsState>(
       builder: (context, state) {
-        final summary =
-            state.voteSummary ?? const IncidentVoteSummaryModel.empty();
+        final summary = state.voteSummary ?? const IncidentVoteSummaryModel.empty();
         final userVote = summary.votoUsuario;
-        final isFinalState = _isFinalIncidentState(widget.incident);
+        final isFinalState = _isFinalIncidentState(incident);
 
         return Card(
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 42,
-                      height: 42,
+                      width: 38,
+                      height: 38,
                       decoration: BoxDecoration(
                         color: AppColors.gold.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Icon(
                         Icons.how_to_vote_outlined,
                         color: AppColors.gold,
+                        size: 20,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'Validación comunitaria',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w900),
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
                           ),
-                          const SizedBox(height: 2),
                           Text(
                             '${summary.total} votos registrados',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       onPressed: state.voteSummaryLoading
                           ? null
                           : () => context
                                 .read<IncidentsCubit>()
-                                .refreshIncidentVoteSummary(
-                                  widget.incident.idIncidencia,
-                                ),
-                      icon: const Icon(Icons.refresh_rounded),
-                      tooltip: 'Actualizar votos',
+                                .refreshIncidentVoteSummary(incident.idIncidencia),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 if (state.voteSummaryLoading)
                   const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 18),
+                    padding: EdgeInsets.symmetric(vertical: 10),
                     child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     ),
                   )
                 else if (state.voteSummaryErrorMessage != null)
@@ -2414,34 +2372,34 @@ class _VoteSectionState extends State<_VoteSection> {
                     message: state.voteSummaryErrorMessage!,
                     onRetry: () => context
                         .read<IncidentsCubit>()
-                        .refreshIncidentVoteSummary(
-                          widget.incident.idIncidencia,
-                        ),
+                        .refreshIncidentVoteSummary(incident.idIncidencia),
                   )
                 else ...[
                   _VoteCounts(summary: summary),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   if (isFinalState)
                     const _InlineEmptyState(
                       icon: Icons.lock_outline_rounded,
-                      message:
-                          'La validación comunitaria se cerró porque la incidencia está en estado final.',
+                      message: 'La validación se cerró por estado final.',
                     )
                   else if (summary.usuarioYaVoto && userVote != null)
                     _AlreadyVotedState(vote: userVote)
                   else
-                    _VoteComposer(
-                      selectedVoteType: _selectedVoteType,
-                      observationController: _observationController,
-                      submitting: state.voteSubmitting,
-                      errorMessage: state.voteSubmitMessage,
-                      onVoteChanged: (value) {
-                        setState(() => _selectedVoteType = value);
-                      },
-                      onSubmit: _submitVote,
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => _showVoteSheet(context),
+                        icon: const Icon(Icons.how_to_vote_rounded, size: 16),
+                        label: const Text('Validar reporte'),
+                      ),
                     ),
                   if (state.recentVotes.isNotEmpty) ...[
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     _RecentVotesList(votes: state.recentVotes),
                   ],
                 ],
@@ -2898,95 +2856,168 @@ class _VoteErrorState extends StatelessWidget {
   }
 }
 
-class _CommentsSection extends StatefulWidget {
+class _CommentsSection extends StatelessWidget {
   final String idIncidencia;
 
   const _CommentsSection({required this.idIncidencia});
 
-  @override
-  State<_CommentsSection> createState() => _CommentsSectionState();
-}
-
-class _CommentsSectionState extends State<_CommentsSection> {
-  final TextEditingController _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void _showCommentSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<IncidentsCubit>(),
+        child: _CommentSheet(idIncidencia: idIncidencia),
+      ),
+    );
   }
 
-  Future<void> _submit() async {
-    final created = await context.read<IncidentsCubit>().createIncidentComment(
-      idIncidencia: widget.idIncidencia,
-      contenido: _controller.text,
+  void _showAllCommentsDialog(BuildContext context, List<IncidentCommentModel> comments) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Comentarios (${comments.length})',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(dialogContext),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: comments.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) => _CommentTile(comment: comments[index]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
-
-    if (created && mounted) {
-      _controller.clear();
-      FocusScope.of(context).unfocus();
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<IncidentsCubit, IncidentsState>(
       builder: (context, state) {
+        final commentsCount = state.selectedIncidentComments.length;
+
         return Card(
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 42,
-                      height: 42,
+                      width: 38,
+                      height: 38,
                       decoration: BoxDecoration(
                         color: AppColors.teal.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Icon(
                         Icons.forum_outlined,
                         color: AppColors.teal,
+                        size: 20,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        'Comentarios',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w900),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Comentarios',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          Text(
+                            '$commentsCount comentarios publicados',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+                          ),
+                        ],
                       ),
                     ),
-                    TextButton.icon(
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
                       onPressed: state.commentsLoading
                           ? null
                           : () => context
                                 .read<IncidentsCubit>()
-                                .refreshIncidentComments(widget.idIncidencia),
+                                .refreshIncidentComments(idIncidencia),
                       icon: const Icon(Icons.refresh_rounded, size: 18),
-                      label: const Text('Actualizar'),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                _CommentComposer(
-                  controller: _controller,
-                  submitting: state.commentSubmitting,
-                  errorMessage: state.commentSubmitMessage,
-                  onSubmit: _submit,
-                ),
-                const SizedBox(height: 16),
-                _CommentsList(
-                  loading: state.commentsLoading,
-                  errorMessage: state.commentsErrorMessage,
-                  comments: state.selectedIncidentComments,
-                  onRetry: () => context
-                      .read<IncidentsCubit>()
-                      .refreshIncidentComments(widget.idIncidencia),
-                ),
+                const SizedBox(height: 12),
+                if (state.commentsLoading && state.selectedIncidentComments.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  )
+                else ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => _showCommentSheet(context),
+                      icon: const Icon(Icons.comment_outlined, size: 16),
+                      label: const Text('Escribir un comentario'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (state.selectedIncidentComments.isEmpty)
+                    const _InlineEmptyState(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      message: 'Sé el primero en comentar.',
+                    )
+                  else ...[
+                    ...state.selectedIncidentComments.take(3).map((comment) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _CommentTile(comment: comment),
+                        )),
+                    if (commentsCount > 3)
+                      Center(
+                        child: TextButton(
+                          onPressed: () => _showAllCommentsDialog(context, state.selectedIncidentComments),
+                          child: const Text('Ver todos los comentarios'),
+                        ),
+                      ),
+                  ],
+                ],
               ],
             ),
           ),
@@ -3066,104 +3097,7 @@ class _CommentComposer extends StatelessWidget {
   }
 }
 
-class _CommentsList extends StatelessWidget {
-  final bool loading;
-  final String? errorMessage;
-  final List<IncidentCommentModel> comments;
-  final VoidCallback onRetry;
 
-  const _CommentsList({
-    required this.loading,
-    required this.errorMessage,
-    required this.comments,
-    required this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (loading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 18),
-        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      );
-    }
-
-    if (errorMessage != null) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.danger.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          children: [
-            const Icon(Icons.cloud_off_rounded, color: AppColors.danger),
-            const SizedBox(height: 8),
-            Text(
-              errorMessage!,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextButton(onPressed: onRetry, child: const Text('Reintentar')),
-          ],
-        ),
-      );
-    }
-
-    if (comments.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.lightGray.withValues(alpha: 0.65),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Column(
-          children: [
-            const Icon(
-              Icons.chat_bubble_outline_rounded,
-              color: AppColors.textSecondary,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Aún no hay comentarios',
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Sé el primero en aportar información sobre este reporte.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        for (final comment in comments) ...[
-          _CommentTile(comment: comment),
-          if (comment != comments.last)
-            Divider(
-              height: 22,
-              color: AppColors.lightGray.withValues(alpha: 0.9),
-            ),
-        ],
-      ],
-    );
-  }
-}
 
 class _CommentTile extends StatelessWidget {
   final IncidentCommentModel comment;
@@ -3310,271 +3244,757 @@ class _DetailLoadingView extends StatelessWidget {
   }
 }
 
-class _RelatedIncidentsSection extends StatelessWidget {
+class _RelatedIncidentsSection extends StatefulWidget {
   final IncidentModel incident;
 
   const _RelatedIncidentsSection({required this.incident});
 
   @override
+  State<_RelatedIncidentsSection> createState() => _RelatedIncidentsSectionState();
+}
+
+class _RelatedIncidentsSectionState extends State<_RelatedIncidentsSection> {
+  bool _isExpanded = false;
+
+  @override
   Widget build(BuildContext context) {
     return BlocBuilder<IncidentsCubit, IncidentsState>(
       builder: (context, state) {
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.gold.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(
-                        Icons.link_rounded,
-                        color: AppColors.gold,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Incidencias Relacionadas',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Duplicados o reportes vinculados',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Actualizar',
-                      onPressed: state.relatedLoading
-                          ? null
-                          : () => context
-                                .read<IncidentsCubit>()
-                                .refreshRelatedIncidents(incident.idIncidencia),
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                if (state.relatedLoading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                else if (state.relatedErrorMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Column(
-                      children: [
-                        Text(
-                          state.relatedErrorMessage!,
-                          style: const TextStyle(color: AppColors.danger),
-                        ),
-                        const SizedBox(height: 8),
-                        ElevatedButton(
-                          onPressed: () => context
-                              .read<IncidentsCubit>()
-                              .refreshRelatedIncidents(incident.idIncidencia),
-                          child: const Text('Reintentar'),
-                        ),
-                      ],
-                    ),
-                  )
-                else ...[
-                  if (state.relatedIncidents.isEmpty)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 20,
-                        horizontal: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.lightGray.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.link_off_rounded,
-                            color: AppColors.textSecondary.withValues(
-                              alpha: 0.6,
-                            ),
-                            size: 32,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'No hay incidencias relacionadas vinculadas.',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: state.relatedIncidents.length,
-                      separatorBuilder: (context, index) =>
-                          const Divider(height: 16),
-                      itemBuilder: (context, index) {
-                        final related = state.relatedIncidents[index];
-                        final isDuplicated =
-                            related.tipoRelacion == 'DUPLICADA';
+        final count = state.relatedIncidents.length;
 
-                        return InkWell(
-                          onTap: () {
-                            context.push(
-                              '/incidents/${related.idIncidenciaRelacionada}',
+        return Card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InkWell(
+                onTap: () {
+                  setState(() => _isExpanded = !_isExpanded);
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: AppColors.gold.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.link_rounded,
+                          color: AppColors.gold,
+                          size: 16,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Incidencias relacionadas',
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                            Text(
+                              '$count vinculadas',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Actualizar',
+                        onPressed: state.relatedLoading
+                            ? null
+                            : () => context
+                                  .read<IncidentsCubit>()
+                                  .refreshRelatedIncidents(widget.incident.idIncidencia),
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                      ),
+                      Icon(
+                        _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                        color: AppColors.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_isExpanded) ...[
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      if (state.relatedLoading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        )
+                      else if (state.relatedErrorMessage != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            state.relatedErrorMessage!,
+                            style: const TextStyle(color: AppColors.danger, fontSize: 12),
+                          ),
+                        )
+                      else if (state.relatedIncidents.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            'Sin reportes relacionados.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                          ),
+                        )
+                      else
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: state.relatedIncidents.length,
+                          separatorBuilder: (context, index) => const Divider(height: 12),
+                          itemBuilder: (context, index) {
+                            final related = state.relatedIncidents[index];
+                            final isDuplicated = related.tipoRelacion == 'DUPLICADA';
+
+                            return InkWell(
+                              onTap: () {
+                                context.push('/incidents/${related.idIncidenciaRelacionada}');
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: isDuplicated
+                                            ? AppColors.danger.withValues(alpha: 0.1)
+                                            : AppColors.teal.withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        isDuplicated ? 'DUPLICADA' : 'VINCULADA',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDuplicated ? AppColors.danger : AppColors.teal,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        related.titulo.isNotEmpty ? related.titulo : 'Incidencia sin título',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                    const Icon(Icons.chevron_right_rounded, size: 16),
+                                  ],
+                                ),
+                              ),
                             );
                           },
-                          borderRadius: BorderRadius.circular(12),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 8,
-                              horizontal: 6,
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isDuplicated
-                                        ? AppColors.danger.withValues(
-                                            alpha: 0.1,
-                                          )
-                                        : AppColors.teal.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    isDuplicated ? 'DUPLICADA' : 'CAUSADA POR',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: isDuplicated
-                                          ? AppColors.danger
-                                          : AppColors.teal,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        related.titulo.isNotEmpty
-                                            ? related.titulo
-                                            : 'Incidencia sin título',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            related.nombreCategoria,
-                                            style: const TextStyle(
-                                              color: AppColors.textSecondary,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          const Text(
-                                            '•',
-                                            style: TextStyle(
-                                              color: AppColors.textSecondary,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            related.nombreEstado,
-                                            style: const TextStyle(
-                                              color: AppColors.textSecondary,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      if (related.distanciaMetros > 0) ...[
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Distancia: ${related.distanciaMetros.toStringAsFixed(1)} m',
-                                          style: const TextStyle(
-                                            color: AppColors.textSecondary,
-                                            fontSize: 11,
-                                            fontStyle: FontStyle.italic,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                                const Icon(
-                                  Icons.chevron_right_rounded,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ],
+                        ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            textStyle: const TextStyle(fontSize: 11),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                        );
-                      },
-                    ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        _showReportContentSheet(
-                          context,
-                          tipoEntidad: 'INCIDENCIA',
-                          idEntidad: incident.idIncidencia,
-                          title: 'Sugerir reporte duplicado',
-                          preselectedMotive: 'Incidencia duplicada',
-                        );
-                      },
-                      icon: const Icon(Icons.info_outline_rounded, size: 18),
-                      label: const Text(
-                        'Creo que este problema ya fue reportado',
+                          onPressed: () {
+                            _showReportContentSheet(
+                              context,
+                              tipoEntidad: 'INCIDENCIA',
+                              idEntidad: widget.incident.idIncidencia,
+                              title: 'Sugerir reporte duplicado',
+                              preselectedMotive: 'Incidencia duplicada',
+                            );
+                          },
+                          icon: const Icon(Icons.info_outline_rounded, size: 14),
+                          label: const Text('Creo que ya fue reportado'),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         );
       },
+    );
+  }
+}
+
+class _VoteSheet extends StatefulWidget {
+  final IncidentModel incident;
+
+  const _VoteSheet({required this.incident});
+
+  @override
+  State<_VoteSheet> createState() => _VoteSheetState();
+}
+
+class _VoteSheetState extends State<_VoteSheet> {
+  final TextEditingController _observationController = TextEditingController();
+  String _selectedVoteType = 'CONFIRMA_EXISTENCIA';
+
+  @override
+  void dispose() {
+    _observationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitVote() async {
+    final created = await context.read<IncidentsCubit>().createIncidentVote(
+      idIncidencia: widget.incident.idIncidencia,
+      tipoVoto: _selectedVoteType,
+      observacion: _observationController.text,
+    );
+
+    if (created && mounted) {
+      Navigator.pop(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: BlocBuilder<IncidentsCubit, IncidentsState>(
+          builder: (context, state) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGray,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Validar reporte',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Ayuda a la comunidad confirmando si este problema es real o si necesita atención.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                _VoteComposer(
+                  selectedVoteType: _selectedVoteType,
+                  observationController: _observationController,
+                  submitting: state.voteSubmitting,
+                  errorMessage: state.voteSubmitMessage,
+                  onVoteChanged: (value) {
+                    setState(() => _selectedVoteType = value);
+                  },
+                  onSubmit: _submitVote,
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _CommentSheet extends StatefulWidget {
+  final String idIncidencia;
+
+  const _CommentSheet({required this.idIncidencia});
+
+  @override
+  State<_CommentSheet> createState() => _CommentSheetState();
+}
+
+class _CommentSheetState extends State<_CommentSheet> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final created = await context.read<IncidentsCubit>().createIncidentComment(
+      idIncidencia: widget.idIncidencia,
+      contenido: _controller.text,
+    );
+
+    if (created && mounted) {
+      Navigator.pop(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: BlocBuilder<IncidentsCubit, IncidentsState>(
+          builder: (context, state) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGray,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Agregar comentario',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                _CommentComposer(
+                  controller: _controller,
+                  submitting: state.commentSubmitting,
+                  errorMessage: state.commentSubmitMessage,
+                  onSubmit: _submit,
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _CompletionSheet extends StatefulWidget {
+  final IncidentModel incident;
+
+  const _CompletionSheet({required this.incident});
+
+  @override
+  State<_CompletionSheet> createState() => _CompletionSheetState();
+}
+
+class _CompletionSheetState extends State<_CompletionSheet> {
+  final TextEditingController _observationController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
+  double? _latitude;
+  double? _longitude;
+  XFile? _selectedImage;
+  bool _locating = false;
+
+  @override
+  void dispose() {
+    _observationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _useCurrentLocation() async {
+    setState(() => _locating = true);
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showMessage('Activa la ubicación para adjuntarla.');
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _showMessage('No tenemos permiso para leer tu ubicación.');
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+      });
+    } catch (_) {
+      _showMessage('No se pudo obtener tu ubicación.');
+    } finally {
+      if (mounted) {
+        setState(() => _locating = false);
+      }
+    }
+  }
+
+  Future<void> _submitConfirmation() async {
+    final created = await context
+        .read<IncidentsCubit>()
+        .createCompletionConfirmation(
+          idIncidencia: widget.incident.idIncidencia,
+          observacion: _observationController.text,
+          latitud: _latitude,
+          longitud: _longitude,
+          imageAttachment: _selectedImage == null
+              ? null
+              : IncidentImageAttachment(_selectedImage!),
+        );
+
+    if (created && mounted) {
+      Navigator.pop(context);
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 82,
+        maxWidth: 1800,
+      );
+
+      if (image == null) return;
+
+      setState(() => _selectedImage = image);
+    } catch (_) {
+      _showMessage('No se pudo seleccionar la imagen.');
+    }
+  }
+
+  void _clearImage() {
+    setState(() => _selectedImage = null);
+  }
+
+  void _clearLocation() {
+    setState(() {
+      _latitude = null;
+      _longitude = null;
+    });
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: BlocBuilder<IncidentsCubit, IncidentsState>(
+          builder: (context, state) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGray,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Confirmar completado',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Confirma si esta incidencia ya fue resuelta. Puedes adjuntar fotos y tu ubicación como prueba.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                _CompletionComposer(
+                  observationController: _observationController,
+                  latitude: _latitude,
+                  longitude: _longitude,
+                  selectedImage: _selectedImage,
+                  locating: _locating,
+                  submitting: state.completionSubmitting,
+                  errorMessage: state.completionSubmitMessage,
+                  onUseLocation: _useCurrentLocation,
+                  onClearLocation: _clearLocation,
+                  onPickCamera: () => _pickImage(ImageSource.camera),
+                  onPickGallery: () => _pickImage(ImageSource.gallery),
+                  onClearImage: _clearImage,
+                  onSubmit: _submitConfirmation,
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickActionsSection extends StatelessWidget {
+  final IncidentModel incident;
+
+  const _QuickActionsSection({required this.incident});
+
+  void _showVoteSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<IncidentsCubit>(),
+        child: _VoteSheet(incident: incident),
+      ),
+    );
+  }
+
+  void _showCommentSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<IncidentsCubit>(),
+        child: _CommentSheet(idIncidencia: incident.idIncidencia),
+      ),
+    );
+  }
+
+  void _showCompletionSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<IncidentsCubit>(),
+        child: _CompletionSheet(incident: incident),
+      ),
+    );
+  }
+
+  void _showChangeStatusSheet(
+    BuildContext context,
+    List<IncidentStatusOptionModel> statuses,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        return BlocProvider.value(
+          value: context.read<IncidentsCubit>(),
+          child: _ChangeStatusSheet(incident: incident, statuses: statuses),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final authState = context.watch<AuthCubit>().state;
+    final currentUserId = authState is AuthAuthenticated ? authState.user.idUsuario : '';
+    final isOwner = currentUserId.isNotEmpty && currentUserId == incident.idUsuarioReporta;
+
+    return BlocBuilder<IncidentsCubit, IncidentsState>(
+      builder: (context, state) {
+        final following = state.followStatus?.siguiendo == true;
+        final availableStatuses = state.statusOptions
+            .where((status) => status.codigo != incident.codigoEstado)
+            .toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 4),
+              child: Text(
+                'Acciones rápidas',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.navy,
+                    ),
+              ),
+            ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _QuickActionChip(
+                    icon: following ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+                    label: following ? 'Siguiendo' : 'Seguir',
+                    onPressed: state.followActionLoading
+                        ? null
+                        : () {
+                            if (following) {
+                              context.read<IncidentsCubit>().unfollowIncident(incident.idIncidencia);
+                            } else {
+                              context.read<IncidentsCubit>().followIncident(incident.idIncidencia);
+                            }
+                          },
+                    isActive: following,
+                  ),
+                  const SizedBox(width: 8),
+                  _QuickActionChip(
+                    icon: Icons.how_to_vote_rounded,
+                    label: 'Validar',
+                    onPressed: () => _showVoteSheet(context),
+                  ),
+                  const SizedBox(width: 8),
+                  _QuickActionChip(
+                    icon: Icons.comment_rounded,
+                    label: 'Comentar',
+                    onPressed: () => _showCommentSheet(context),
+                  ),
+                  const SizedBox(width: 8),
+                  _QuickActionChip(
+                    icon: Icons.verified_rounded,
+                    label: 'Confirmar completado',
+                    onPressed: () => _showCompletionSheet(context),
+                  ),
+                  const SizedBox(width: 8),
+                  _QuickActionChip(
+                    icon: Icons.copy_rounded,
+                    label: 'Ya reportado',
+                    onPressed: () {
+                      _showReportContentSheet(
+                        context,
+                        tipoEntidad: 'INCIDENCIA',
+                        idEntidad: incident.idIncidencia,
+                        title: 'Sugerir reporte duplicado',
+                        preselectedMotive: 'Incidencia duplicada',
+                      );
+                    },
+                  ),
+                  if (isOwner && availableStatuses.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    _QuickActionChip(
+                      icon: Icons.sync_alt_rounded,
+                      label: 'Cambiar estado',
+                      onPressed: () => _showChangeStatusSheet(context, availableStatuses),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _QuickActionChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool isActive;
+
+  const _QuickActionChip({
+    required this.icon,
+    required this.label,
+    this.onPressed,
+    this.isActive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      onPressed: onPressed,
+      avatar: Icon(
+        icon,
+        size: 16,
+        color: isActive ? AppColors.white : AppColors.teal,
+      ),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: isActive ? AppColors.white : AppColors.navy,
+        ),
+      ),
+      backgroundColor: isActive ? AppColors.teal : AppColors.white,
+      side: BorderSide(
+        color: isActive ? Colors.transparent : AppColors.lightGray,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      visualDensity: VisualDensity.compact,
     );
   }
 }

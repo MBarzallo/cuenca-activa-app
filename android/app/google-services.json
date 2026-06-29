@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1047144398112:android:7078f5133ef309c2596b45",
+        "mobilesdk_app_id": "1:1047144398112:android:d5dff9c6a54eaa0c596b45",
         "android_client_info": {
-          "package_name": "com.example.cuenca_activa_app"
+          "package_name": "com.cuencaactiva.app"
         }
       },
       "oauth_client": [],

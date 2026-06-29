@@ -1,10 +1,18 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:showcaseview/showcaseview.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/widgets/app_showcase_step.dart';
+import '../../auth/logic/auth_cubit.dart';
+import '../../auth/logic/auth_state.dart';
 import '../data/category_model.dart';
 import '../data/incident_image_attachment.dart';
 import '../logic/incidents_cubit.dart';
@@ -23,14 +31,22 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
   final _descriptionController = TextEditingController();
   final _addressController = TextEditingController();
   final _imagePicker = ImagePicker();
+  final GlobalKey _categoryKey = GlobalKey();
+  final GlobalKey _detailsKey = GlobalKey();
+  final GlobalKey _locationKey = GlobalKey();
+  final GlobalKey _imageKey = GlobalKey();
+  final GlobalKey _submitKey = GlobalKey();
 
   CategoryModel? _selectedCategory;
   XFile? _selectedImage;
+  Uint8List? _selectedImageBytes;
   Position? _currentPosition;
   bool _locating = false;
   String? _locationMessage;
   bool _locationBlocked = false;
   bool _locationServiceDisabled = false;
+  bool _tourScheduled = false;
+  bool _submitSuccess = false;
 
   @override
   void initState() {
@@ -183,14 +199,22 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
         return;
       }
 
-      setState(() => _selectedImage = image);
+      final bytes = await image.readAsBytes();
+
+      setState(() {
+        _selectedImage = image;
+        _selectedImageBytes = bytes;
+      });
     } catch (_) {
       _showMessage('No se pudo seleccionar la imagen.');
     }
   }
 
   void _clearImage() {
-    setState(() => _selectedImage = null);
+    setState(() {
+      _selectedImage = null;
+      _selectedImageBytes = null;
+    });
   }
 
   void _showMessage(String message) {
@@ -203,158 +227,447 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return BlocConsumer<IncidentsCubit, IncidentsState>(
-      listener: (context, state) {
-        if (state.submitStatus == IncidentSubmitStatus.success) {
-          _showMessage(state.submitMessage ?? 'Incidencia reportada.');
-          context.read<IncidentsCubit>().resetSubmitStatus();
-          context.pop();
-        }
+  void _clearForm() {
+    _titleController.clear();
+    _descriptionController.clear();
+    _addressController.clear();
+    setState(() {
+      _selectedCategory = null;
+      _selectedImage = null;
+      _selectedImageBytes = null;
+      _currentPosition = null;
+      _locationMessage = null;
+    });
+    _formKey.currentState?.reset();
+    _useCurrentLocation(silent: true);
+  }
 
-        if (state.submitStatus == IncidentSubmitStatus.failure) {
-          _showMessage(state.submitMessage ?? 'No se pudo reportar.');
-          context.read<IncidentsCubit>().resetSubmitStatus();
-        }
-      },
-      builder: (context, state) {
-        final submitting = state.submitStatus == IncidentSubmitStatus.loading;
+  bool _hasUnsavedChanges() {
+    return _titleController.text.isNotEmpty ||
+        _descriptionController.text.isNotEmpty ||
+        _addressController.text.isNotEmpty ||
+        _selectedCategory != null ||
+        _selectedImage != null;
+  }
 
-        return Scaffold(
-          body: SafeArea(
-            child: SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _IntroCard(onUseLocation: _useCurrentLocation),
-                    const SizedBox(height: 18),
-                    if (state.loading && state.categories.isEmpty)
-                      const _LoadingCategoriesCard()
-                    else if (state.categories.isEmpty)
-                      _MissingCategoriesCard(
-                        onRetry: context.read<IncidentsCubit>().loadInitialData,
-                      )
-                    else ...[
-                      DropdownButtonFormField<CategoryModel>(
-                        initialValue: _selectedCategory,
-                        hint: const Text('Selecciona una categoría'),
-                        decoration: const InputDecoration(
-                          labelText: 'Categoría',
-                          prefixIcon: Icon(Icons.category_rounded),
-                        ),
-                        items: state.categories.map((cat) {
-                          return DropdownMenuItem(
-                            value: cat,
-                            child: Text(cat.nombre),
-                          );
-                        }).toList(),
-                        onChanged: submitting
-                            ? null
-                            : (value) =>
-                                  setState(() => _selectedCategory = value),
-                        validator: (value) {
-                          if (value == null) {
-                            return 'Selecciona una categoría';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      TextFormField(
-                        controller: _titleController,
-                        enabled: !submitting,
-                        decoration: const InputDecoration(
-                          labelText: 'Título',
-                          hintText: 'Ej. Bache peligroso en la calzada',
-                          prefixIcon: Icon(Icons.title_rounded),
-                        ),
-                        textCapitalization: TextCapitalization.sentences,
-                        maxLength: 80,
-                        validator: _requiredValidator,
-                      ),
-                      const SizedBox(height: 20),
-                      TextFormField(
-                        controller: _descriptionController,
-                        enabled: !submitting,
-                        maxLines: 4,
-                        decoration: const InputDecoration(
-                          labelText: 'Descripción del problema',
-                          hintText:
-                              'Describe detalladamente la situación y los peligros asociados...',
-                          alignLabelWithHint: true,
-                          prefixIcon: Padding(
-                            padding: EdgeInsets.only(bottom: 56),
-                            child: Icon(Icons.description_rounded),
-                          ),
-                        ),
-                        textCapitalization: TextCapitalization.sentences,
-                        maxLength: 500,
-                        validator: _requiredValidator,
-                      ),
-                      const SizedBox(height: 20),
-                      TextFormField(
-                        controller: _addressController,
-                        textCapitalization: TextCapitalization.sentences,
-                        textInputAction: TextInputAction.next,
-                        maxLength: 250,
-                        decoration: const InputDecoration(
-                          labelText: 'Direccion referencial',
-                          prefixIcon: Icon(Icons.place_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _LocationCaptureCard(
-                        position: _currentPosition,
-                        locating: _locating,
-                        message: _locationMessage,
-                        blocked: _locationBlocked,
-                        serviceDisabled: _locationServiceDisabled,
-                        disabled: submitting,
-                        onRetry: () => _useCurrentLocation(),
-                        onOpenSettings: _locationBlocked
-                            ? Geolocator.openAppSettings
-                            : Geolocator.openLocationSettings,
-                      ),
-                      const SizedBox(height: 22),
-                      _ImagePickerCard(
-                        selectedImage: _selectedImage,
-                        disabled: submitting,
-                        onCamera: () => _pickImage(ImageSource.camera),
-                        onGallery: () => _pickImage(ImageSource.gallery),
-                        onClear: _clearImage,
-                      ),
-                      const SizedBox(height: 22),
-                      FilledButton.icon(
-                        onPressed: submitting || _locating ? null : _submit,
-                        icon: submitting
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.white,
-                                ),
-                              )
-                            : const Icon(Icons.send_rounded),
-                        label: Text(
-                          submitting ? 'Reportando' : 'Enviar reporte',
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+  Future<bool> _showDiscardConfirmation(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Descartar reporte'),
+          content: const Text(
+            'Tienes información sin enviar. ¿Deseas salir y descartar el reporte?',
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Seguir editando'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.danger,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Descartar'),
+            ),
+          ],
         );
       },
     );
+    return result ?? false;
   }
+
+  void _handleBack() async {
+    if (_hasUnsavedChanges()) {
+      final confirm = await _showDiscardConfirmation(context);
+      if (!confirm) return;
+    }
+    if (mounted) {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/home');
+      }
+    }
+  }
+
+  void _handleClear(bool submitting) async {
+    if (submitting) return;
+    if (_hasUnsavedChanges()) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Limpiar formulario'),
+            content: const Text(
+              '¿Estás seguro de que deseas borrar toda la información escrita?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Limpiar'),
+              ),
+            ],
+          );
+        },
+      );
+      if (confirm == true) {
+        _clearForm();
+      }
+    } else {
+      _clearForm();
+    }
+  }
+
+  Future<void> _startShowcaseIfNeeded(
+    BuildContext showcaseContext,
+    String userId,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'has_shown_report_incident_showcase_v1_$userId';
+    final hasShownShowcase = prefs.getBool(key) ?? false;
+    if (!hasShownShowcase && showcaseContext.mounted) {
+      _startReportTour(showcaseContext);
+      await prefs.setBool(key, true);
+    }
+  }
+
+  void _startReportTour(BuildContext showcaseContext) {
+    final keys = [
+      _categoryKey,
+      _detailsKey,
+      _locationKey,
+      _imageKey,
+      _submitKey,
+    ];
+    // ignore: deprecated_member_use
+    ShowCaseWidget.of(showcaseContext).startShowCase(keys);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final authState = context.watch<AuthCubit>().state;
+
+    if (authState is AuthAuthenticated && !authState.user.telefonoVerificado) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Verificación requerida'),
+          leading: IconButton(
+            icon: const Icon(Icons.close_rounded),
+            onPressed: () => context.go('/home'),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.phone_locked_rounded,
+                  size: 80,
+                  color: AppColors.gold,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Verificación de celular requerida',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.navy,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Para registrar reportes ciudadanos en Cuenca Activa, debes contar con un número celular verificado mediante SMS. Esto garantiza la seriedad y veracidad de cada reporte.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton.icon(
+                    onPressed: () => context.go('/profile'),
+                    icon: const Icon(Icons.verified_user_rounded),
+                    label: const Text('Verificar celular ahora'),
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ignore: deprecated_member_use
+    return ShowCaseWidget(
+      enableAutoScroll: true,
+      scrollDuration: const Duration(milliseconds: 460),
+      builder: (showcaseContext) {
+        return BlocConsumer<IncidentsCubit, IncidentsState>(
+          listener: (context, state) {
+            if (state.submitStatus == IncidentSubmitStatus.success) {
+              setState(() {
+                _submitSuccess = true;
+              });
+
+              final cubit = context.read<IncidentsCubit>();
+              final router = GoRouter.of(context);
+
+              Future<void>.delayed(const Duration(milliseconds: 1000)).then((_) {
+                if (!mounted) return;
+                _showMessage(state.submitMessage ?? 'Incidencia reportada.');
+                _clearForm();
+                cubit.resetSubmitStatus();
+                setState(() {
+                  _submitSuccess = false;
+                });
+                router.go('/my-reports');
+              });
+            }
+
+            if (state.submitStatus == IncidentSubmitStatus.failure) {
+              setState(() {
+                _submitSuccess = false;
+              });
+              _showMessage(state.submitMessage ?? 'No se pudo reportar.');
+              context.read<IncidentsCubit>().resetSubmitStatus();
+            }
+          },
+          builder: (context, state) {
+            final submitting =
+                state.submitStatus == IncidentSubmitStatus.loading;
+            final userId = authState is AuthAuthenticated
+                ? authState.user.idUsuario
+                : 'guest';
+
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!_tourScheduled && state.categories.isNotEmpty) {
+                _tourScheduled = true;
+                _startShowcaseIfNeeded(showcaseContext, userId);
+              }
+            });
+
+            return PopScope(
+              canPop: !_hasUnsavedChanges(),
+              onPopInvokedWithResult: (didPop, result) async {
+                if (didPop) return;
+                final shouldPop = await _showDiscardConfirmation(context);
+                if (shouldPop && context.mounted) {
+                  Navigator.of(context).pop();
+                }
+              },
+              child: Scaffold(
+                appBar: AppBar(
+                  leading: IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: 'Cerrar',
+                    onPressed: _handleBack,
+                  ),
+                  title: const Text('Nuevo reporte'),
+                  actions: [
+                    TextButton(
+                      onPressed: submitting ? null : () => _handleClear(submitting),
+                      child: const Text(
+                        'Limpiar',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Ayuda',
+                      onPressed: () => _startReportTour(showcaseContext),
+                      icon: const Icon(Icons.help_outline_rounded),
+                    ),
+                  ],
+                ),
+                body: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (state.loading && state.categories.isEmpty)
+                          const _LoadingCategoriesCard()
+                        else if (state.categories.isEmpty)
+                          _MissingCategoriesCard(
+                            onRetry: context
+                                .read<IncidentsCubit>()
+                                .loadInitialData,
+                          )
+                        else ...[
+                          AppShowcaseStep(
+                            showcaseKey: _categoryKey,
+                            title: 'Clasifica el problema',
+                            description:
+                                'Elige la categoría que mejor describe la incidencia. Esto ayuda a filtrar reportes y asignar prioridad.',
+                            child: DropdownButtonFormField<CategoryModel>(
+                              key: ValueKey(_selectedCategory),
+                              initialValue: _selectedCategory,
+                              hint: const Text('Selecciona una categoría'),
+                              decoration: const InputDecoration(
+                                labelText: 'Categoría',
+                                prefixIcon: Icon(Icons.category_rounded),
+                              ),
+                              items: state.categories.map((cat) {
+                                return DropdownMenuItem(
+                                  value: cat,
+                                  child: Text(cat.nombre),
+                                );
+                              }).toList(),
+                              onChanged: submitting
+                                  ? null
+                                  : (value) => setState(
+                                      () => _selectedCategory = value,
+                                    ),
+                              validator: (value) {
+                                if (value == null) {
+                                  return 'Selecciona una categoría';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          AppShowcaseStep(
+                            showcaseKey: _detailsKey,
+                            title: 'Cuenta lo esencial',
+                            description:
+                                'Usa un título corto y una descripción concreta: qué viste, qué riesgo existe y desde cuándo ocurre si lo sabes.',
+                            child: Column(
+                              children: [
+                                TextFormField(
+                                  controller: _titleController,
+                                  enabled: !submitting,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Título',
+                                    hintText:
+                                        'Ej. Bache peligroso en la calzada',
+                                    prefixIcon: Icon(Icons.title_rounded),
+                                  ),
+                                  textCapitalization:
+                                      TextCapitalization.sentences,
+                                  maxLength: 80,
+                                  validator: _requiredValidator,
+                                ),
+                                const SizedBox(height: 14),
+                                TextFormField(
+                                  controller: _descriptionController,
+                                  enabled: !submitting,
+                                  maxLines: 3,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Descripción del problema',
+                                    hintText:
+                                        'Describe detalladamente la situación y los peligros asociados...',
+                                    alignLabelWithHint: true,
+                                    prefixIcon: Padding(
+                                      padding: EdgeInsets.only(bottom: 36),
+                                      child: Icon(Icons.description_rounded),
+                                    ),
+                                  ),
+                                  textCapitalization:
+                                      TextCapitalization.sentences,
+                                  maxLength: 500,
+                                  validator: _requiredValidator,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          AppShowcaseStep(
+                            showcaseKey: _locationKey,
+                            title: 'Ubicación precisa',
+                            description:
+                                'La ubicación coloca el reporte en el mapa. Si el permiso falla, puedes abrir ajustes y volver a intentarlo.',
+                            child: _LocationCaptureCard(
+                              position: _currentPosition,
+                              locating: _locating,
+                              message: _locationMessage,
+                              blocked: _locationBlocked,
+                              serviceDisabled: _locationServiceDisabled,
+                              disabled: submitting,
+                              addressController: _addressController,
+                              onRetry: () => _useCurrentLocation(),
+                              onOpenSettings: _locationBlocked
+                                  ? Geolocator.openAppSettings
+                                  : Geolocator.openLocationSettings,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          AppShowcaseStep(
+                            showcaseKey: _imageKey,
+                            title: 'Evidencia visual',
+                            description:
+                                'Una foto no es obligatoria, pero ayuda a validar la incidencia y evita reportes ambiguos.',
+                            child: _ImagePickerCard(
+                              selectedImage: _selectedImage,
+                              selectedImageBytes: _selectedImageBytes,
+                              disabled: submitting,
+                              onCamera: () => _pickImage(ImageSource.camera),
+                              onGallery: () => _pickImage(ImageSource.gallery),
+                              onClear: _clearImage,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              bottomNavigationBar: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.navy.withValues(alpha: 0.06),
+                      blurRadius: 10,
+                      offset: const Offset(0, -4),
+                    ),
+                  ],
+                ),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    child: AppShowcaseStep(
+                      showcaseKey: _submitKey,
+                      title: 'Enviar y seguir',
+                      description:
+                          'Cuando todo esté listo, envía el reporte. Luego aparecerá en Mis reportes para consultar su estado.',
+                      child: _AnimatedSubmitButton(
+                        submitting: submitting,
+                        success: _submitSuccess,
+                        locating: _locating,
+                        onPressed: _submit,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
 
   String? _requiredValidator(String? value) {
     if (value == null || value.trim().isEmpty) {
@@ -365,59 +678,7 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
   }
 }
 
-class _IntroCard extends StatelessWidget {
-  final VoidCallback onUseLocation;
 
-  const _IntroCard({required this.onUseLocation});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: AppColors.navy,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: AppColors.gold,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: const Icon(
-                Icons.add_location_alt_rounded,
-                color: AppColors.navy,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Nuevo reporte ciudadano',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AppColors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Describe el problema y registra su ubicacion para que pueda ser atendido.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.white.withValues(alpha: 0.75),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _LoadingCategoriesCard extends StatelessWidget {
   const _LoadingCategoriesCard();
@@ -446,6 +707,7 @@ class _LocationCaptureCard extends StatelessWidget {
   final bool blocked;
   final bool serviceDisabled;
   final bool disabled;
+  final TextEditingController addressController;
   final VoidCallback onRetry;
   final Future<bool> Function() onOpenSettings;
 
@@ -456,6 +718,7 @@ class _LocationCaptureCard extends StatelessWidget {
     required this.blocked,
     required this.serviceDisabled,
     required this.disabled,
+    required this.addressController,
     required this.onRetry,
     required this.onOpenSettings,
   });
@@ -470,39 +733,37 @@ class _LocationCaptureCard extends StatelessWidget {
         : hasProblem
         ? AppColors.danger
         : AppColors.teal;
+    
     final title = hasLocation
         ? 'Ubicación capturada'
         : locating
-        ? 'Obteniendo ubicación'
+        ? 'Obteniendo ubicación...'
         : hasProblem
         ? 'Ubicación requerida'
         : 'Ubicación del reporte';
-    final description = hasLocation
-        ? '${currentPosition.latitude.toStringAsFixed(6)}, ${currentPosition.longitude.toStringAsFixed(6)}'
-        : message ??
-              'La app tomará tu ubicación actual para ubicar el reporte en el mapa.';
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  width: 46,
-                  height: 46,
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     hasLocation
-                        ? Icons.my_location_rounded
+                        ? Icons.location_on_rounded
                         : Icons.location_searching_rounded,
                     color: color,
+                    size: 20,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -512,65 +773,210 @@ class _LocationCaptureCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w900),
+                        style: Theme.of(context).textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w800),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        description,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w700,
-                          height: 1.35,
+                      if (hasLocation) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '${currentPosition.latitude.toStringAsFixed(5)}, ${currentPosition.longitude.toStringAsFixed(5)}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                                fontSize: 10,
+                              ),
                         ),
-                      ),
+                      ] else ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          message ?? 'Ubicaremos el reporte automáticamente con tu GPS.',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                                height: 1.25,
+                              ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: disabled || locating ? null : onRetry,
-                    icon: locating
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(
-                            hasLocation
-                                ? Icons.refresh_rounded
-                                : Icons.gps_fixed_rounded,
+            if (hasLocation) ...[
+              const SizedBox(height: 12),
+              Container(
+                height: 140,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.lightGray),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(15),
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        options: MapOptions(
+                          initialCenter: LatLng(currentPosition.latitude, currentPosition.longitude),
+                          initialZoom: 15,
+                          minZoom: 10,
+                          maxZoom: 18,
+                          interactionOptions: const InteractionOptions(
+                            flags: InteractiveFlag.none,
                           ),
-                    label: Text(
-                      locating
-                          ? 'Ubicando...'
-                          : hasLocation
-                          ? 'Actualizar'
-                          : 'Obtener ubicación',
-                    ),
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.example.cuenca_activa_app',
+                          ),
+                          MarkerLayer(
+                            markers: [
+                              Marker(
+                                point: LatLng(currentPosition.latitude, currentPosition.longitude),
+                                width: 32,
+                                height: 32,
+                                alignment: Alignment.center,
+                                child: const Icon(
+                                  Icons.location_on_rounded,
+                                  color: AppColors.danger,
+                                  size: 32,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.navy.withValues(alpha: 0.15),
+                                blurRadius: 6,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: IconButton(
+                              constraints: const BoxConstraints(
+                                minWidth: 36,
+                                minHeight: 36,
+                              ),
+                              padding: EdgeInsets.zero,
+                              tooltip: 'Actualizar ubicación',
+                              onPressed: disabled || locating ? null : onRetry,
+                              icon: locating
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.teal),
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.my_location_rounded,
+                                      size: 16,
+                                      color: AppColors.teal,
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                if (blocked || serviceDisabled) ...[
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: addressController,
+              enabled: !disabled,
+              textCapitalization: TextCapitalization.sentences,
+              textInputAction: TextInputAction.next,
+              maxLength: 250,
+              decoration: const InputDecoration(
+                labelText: 'Dirección referencial',
+                hintText: 'Ej. Frente al parque, casa color verde...',
+                prefixIcon: Icon(Icons.info_outline_rounded),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+            if (!hasLocation) ...[
+              const SizedBox(height: 12),
+              if (blocked || serviceDisabled)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: disabled || locating ? null : onRetry,
+                      icon: locating
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.gps_fixed_rounded, size: 16),
+                      label: Text(
+                        locating ? 'Ubicando...' : 'Reintentar',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
                       onPressed: disabled || locating
                           ? null
                           : () async {
                               await onOpenSettings();
                             },
-                      icon: const Icon(Icons.settings_outlined),
-                      label: const Text('Ajustes'),
+                      icon: const Icon(Icons.settings_outlined, size: 16),
+                      label: const Text('Ajustes', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                )
+              else
+                Center(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: disabled || locating ? null : onRetry,
+                    icon: locating
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Icon(Icons.gps_fixed_rounded, size: 16),
+                    label: Text(
+                      locating ? 'Obteniendo...' : 'Obtener ubicación',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
-                ],
-              ],
-            ),
+                ),
+            ],
           ],
         ),
       ),
@@ -580,6 +986,7 @@ class _LocationCaptureCard extends StatelessWidget {
 
 class _ImagePickerCard extends StatelessWidget {
   final XFile? selectedImage;
+  final Uint8List? selectedImageBytes;
   final bool disabled;
   final VoidCallback onCamera;
   final VoidCallback onGallery;
@@ -587,6 +994,7 @@ class _ImagePickerCard extends StatelessWidget {
 
   const _ImagePickerCard({
     required this.selectedImage,
+    required this.selectedImageBytes,
     required this.disabled,
     required this.onCamera,
     required this.onGallery,
@@ -596,25 +1004,27 @@ class _ImagePickerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final image = selectedImage;
+    final bytes = selectedImageBytes;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Container(
-                  width: 46,
-                  height: 46,
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
                     color: AppColors.teal.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
                     Icons.image_outlined,
                     color: AppColors.teal,
+                    size: 20,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -624,12 +1034,12 @@ class _ImagePickerCard extends StatelessWidget {
                     children: [
                       Text(
                         'Imagen del reporte',
-                        style: Theme.of(context).textTheme.titleMedium
+                        style: Theme.of(context).textTheme.titleSmall
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
                       Text(
-                        'JPG, PNG o WEBP. Máximo 5 MB.',
+                        'Foto opcional como evidencia.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: AppColors.textSecondary,
                           fontWeight: FontWeight.w600,
@@ -640,59 +1050,117 @@ class _ImagePickerCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            if (image == null)
+            const SizedBox(height: 12),
+            if (image == null || bytes == null)
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
                       onPressed: disabled ? null : onCamera,
-                      icon: const Icon(Icons.photo_camera_outlined),
-                      label: const Text('Cámara'),
+                      icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                      label: const Text('Cámara', style: TextStyle(fontSize: 13)),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
                       onPressed: disabled ? null : onGallery,
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('Galería'),
+                      icon: const Icon(Icons.photo_library_outlined, size: 18),
+                      label: const Text('Galería', style: TextStyle(fontSize: 13)),
                     ),
                   ),
                 ],
               )
             else
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.background,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.lightGray),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.check_circle_rounded,
-                      color: AppColors.success,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        image.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (context) => Dialog(
+                          backgroundColor: Colors.transparent,
+                          child: Stack(
+                            alignment: Alignment.topRight,
+                            children: [
+                              InteractiveViewer(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Image.memory(bytes),
+                                ),
+                              ),
+                              IconButton(
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.black54,
+                                ),
+                                icon: const Icon(Icons.close, color: Colors.white),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      height: 160,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.lightGray),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(15),
+                        child: Image.memory(
+                          bytes,
+                          fit: BoxFit.cover,
                         ),
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'Quitar imagen',
-                      onPressed: disabled ? null : onClear,
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          image.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: disabled ? null : onCamera,
+                        icon: const Icon(Icons.cached_rounded, size: 16),
+                        label: const Text('Cambiar', style: TextStyle(fontSize: 12)),
+                      ),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: disabled ? null : onClear,
+                        icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                        label: const Text('Quitar', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ],
               ),
           ],
         ),
@@ -741,3 +1209,177 @@ class _MissingCategoriesCard extends StatelessWidget {
     );
   }
 }
+
+class _AnimatedSubmitButton extends StatefulWidget {
+  final bool submitting;
+  final bool success;
+  final bool locating;
+  final VoidCallback onPressed;
+
+  const _AnimatedSubmitButton({
+    required this.submitting,
+    required this.success,
+    required this.locating,
+    required this.onPressed,
+  });
+
+  @override
+  State<_AnimatedSubmitButton> createState() => _AnimatedSubmitButtonState();
+}
+
+class _AnimatedSubmitButtonState extends State<_AnimatedSubmitButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _flightAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+
+    _flightAnimation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    );
+
+    if (widget.submitting) {
+      _animationController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedSubmitButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.submitting && !_animationController.isAnimating) {
+      _animationController.repeat();
+    } else if (!widget.submitting && _animationController.isAnimating) {
+      _animationController.stop();
+      _animationController.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDisabled = widget.submitting || widget.success || widget.locating;
+
+    final Color buttonColor;
+    if (widget.success) {
+      buttonColor = AppColors.success;
+    } else if (isDisabled) {
+      buttonColor = AppColors.navy.withValues(alpha: 0.5);
+    } else {
+      buttonColor = AppColors.navy;
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      height: 48,
+      decoration: BoxDecoration(
+        color: buttonColor,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: isDisabled ? null : widget.onPressed,
+          child: Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: widget.success
+                        ? const Icon(
+                            Icons.check_circle_rounded,
+                            key: ValueKey('success-icon'),
+                            color: AppColors.white,
+                            size: 20,
+                          )
+                        : widget.submitting
+                            ? AnimatedBuilder(
+                                animation: _flightAnimation,
+                                builder: (context, child) {
+                                  final double progress = _flightAnimation.value;
+                                  final double opacity = progress < 0.1
+                                      ? progress / 0.1
+                                      : progress > 0.8
+                                          ? (1.0 - progress) / 0.2
+                                          : 1.0;
+
+                                  return Transform.translate(
+                                    offset: Offset(
+                                      30.0 * progress - 10.0,
+                                      -15.0 * progress + 5.0,
+                                    ),
+                                    child: Transform.rotate(
+                                      angle: -0.3,
+                                      child: Opacity(
+                                        opacity: opacity.clamp(0.0, 1.0),
+                                        child: const Icon(
+                                          Icons.send_rounded,
+                                          color: AppColors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              )
+                            : const Icon(
+                                Icons.send_rounded,
+                                key: ValueKey('normal-icon'),
+                                color: AppColors.white,
+                                size: 18,
+                              ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  child: Text(
+                    widget.success
+                        ? 'Reporte enviado'
+                        : widget.submitting
+                            ? 'Enviando reporte...'
+                            : widget.locating
+                                ? 'Obteniendo ubicación...'
+                                : 'Enviar reporte',
+                    key: ValueKey(
+                      widget.success
+                          ? 'success-text'
+                          : widget.submitting
+                              ? 'submitting-text'
+                              : widget.locating
+                                  ? 'locating-text'
+                                  : 'normal-text',
+                    ),
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+

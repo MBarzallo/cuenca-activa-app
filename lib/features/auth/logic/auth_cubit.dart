@@ -149,6 +149,22 @@ class AuthCubit extends Cubit<AuthState> {
     }
   }
 
+  Future<void> verificarDisponibilidadTelefono(String phone) {
+    return _authRepository.verificarDisponibilidadTelefono(phone);
+  }
+
+  Future<String?> sincronizarTelefono() async {
+    try {
+      final updatedUser = await _authRepository.sincronizarTelefonoVerificado();
+      emit(AuthAuthenticated(updatedUser));
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'No se pudo sincronizar el teléfono verificado.';
+    }
+  }
+
   Future<String?> uploadProfilePhoto(XFile image) async {
     try {
       return await _authRepository.uploadProfilePhoto(image);

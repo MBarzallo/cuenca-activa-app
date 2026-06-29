@@ -45,4 +45,14 @@ class CategoryModel {
 
     return AppColors.teal;
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CategoryModel &&
+          runtimeType == other.runtimeType &&
+          idCategoria == other.idCategoria;
+
+  @override
+  int get hashCode => idCategoria.hashCode;
 }

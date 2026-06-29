@@ -5,6 +5,9 @@ class AuthUserModel {
   final String apellidos;
   final String aliasPublico;
   final String? telefono;
+  final String? telefonoPendiente;
+  final bool telefonoVerificado;
+  final String? telefonoVerificadoEn;
   final String? fotoPerfilUrl;
   final String estadoCuenta;
   final int puntosTotales;
@@ -24,6 +27,9 @@ class AuthUserModel {
     required this.apellidos,
     required this.aliasPublico,
     required this.telefono,
+    required this.telefonoPendiente,
+    required this.telefonoVerificado,
+    required this.telefonoVerificadoEn,
     required this.fotoPerfilUrl,
     required this.estadoCuenta,
     required this.puntosTotales,
@@ -45,6 +51,9 @@ class AuthUserModel {
       apellidos: json['apellidos']?.toString() ?? '',
       aliasPublico: json['aliasPublico']?.toString() ?? '',
       telefono: json['telefono']?.toString(),
+      telefonoPendiente: json['telefonoPendiente']?.toString(),
+      telefonoVerificado: json['telefonoVerificado'] as bool? ?? false,
+      telefonoVerificadoEn: json['telefonoVerificadoEn']?.toString(),
       fotoPerfilUrl: json['fotoPerfilUrl']?.toString(),
       estadoCuenta: json['estadoCuenta']?.toString() ?? '',
       puntosTotales: json['puntosTotales'] as int? ?? 0,

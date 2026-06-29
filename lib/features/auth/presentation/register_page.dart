@@ -32,14 +32,28 @@ class _RegisterPageState extends State<RegisterPage> {
       return;
     }
 
+    final rawPhone = telefonoController.text.trim();
+    final phone = rawPhone.isEmpty ? '' : _normalizarTelefono(rawPhone);
+
     context.read<AuthCubit>().register(
       email: emailController.text.trim(),
       password: passwordController.text,
       nombres: nombresController.text.trim(),
       apellidos: apellidosController.text.trim(),
       aliasPublico: aliasController.text.trim(),
-      telefono: telefonoController.text.trim(),
+      telefono: phone,
     );
+  }
+
+  String _normalizarTelefono(String rawPhone) {
+    String phone = rawPhone.replaceAll(RegExp(r'[\s\-()]+'), '');
+    if (phone.startsWith('+')) {
+      return phone;
+    }
+    if (phone.startsWith('0')) {
+      phone = phone.substring(1);
+    }
+    return '+593$phone';
   }
 
   @override
@@ -249,9 +263,30 @@ class _RegisterPageState extends State<RegisterPage> {
                                 if (!loading) _register();
                               },
                               decoration: const InputDecoration(
-                                labelText: 'Teléfono',
+                                labelText: 'Teléfono (Ecuador)',
                                 prefixIcon: Icon(Icons.phone_outlined),
+                                hintText: '09XXXXXXXX',
+                                helperText: 'Opcional. Ej: 0998765432 o 998765432',
                               ),
+                              validator: (value) {
+                                final val = (value ?? '').trim().replaceAll(RegExp(r'[\s\-()]+'), '');
+                                if (val.isEmpty) {
+                                  return null;
+                                }
+                                if (val.startsWith('+')) {
+                                  if (!RegExp(r'^\+[1-9]\d{1,14}$').hasMatch(val)) {
+                                    return 'Formato internacional inválido.';
+                                  }
+                                } else {
+                                  final hasLeadingZero = val.startsWith('0');
+                                  final expectedLength = hasLeadingZero ? 10 : 9;
+                                  final cleanVal = hasLeadingZero ? val.substring(1) : val;
+                                  if (!cleanVal.startsWith('9') || val.length != expectedLength || !RegExp(r'^\d+$').hasMatch(val)) {
+                                    return 'Ingresa un celular válido de Ecuador (ej: 0998765432).';
+                                  }
+                                }
+                                return null;
+                              },
                             ),
                             const SizedBox(height: 14),
                             SizedBox(

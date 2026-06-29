@@ -16,6 +16,8 @@ class NotificationsPage extends StatefulWidget {
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
+  NotificationFilter _activeFilter = NotificationFilter.all;
+
   @override
   void initState() {
     super.initState();
@@ -24,74 +26,148 @@ class _NotificationsPageState extends State<NotificationsPage> {
     });
   }
 
+  String _getDateGroup(DateTime? date) {
+    if (date == null) return 'Anteriores';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final startOfWeek = today.subtract(Duration(days: now.weekday - 1));
+
+    final localDate = date.toLocal();
+    final compareDate = DateTime(localDate.year, localDate.month, localDate.day);
+
+    if (compareDate == today) {
+      return 'Hoy';
+    } else if (compareDate == yesterday) {
+      return 'Ayer';
+    } else if (compareDate.isAfter(startOfWeek.subtract(const Duration(days: 1)))) {
+      return 'Esta semana';
+    } else {
+      return 'Anteriores';
+    }
+  }
+
+  void _showPreferencesSheet(BuildContext context, NotificationsState state) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<NotificationsCubit>(),
+        child: _NotificationPreferencesSheet(
+          preferences: state.preferences,
+          loading: state.preferencesLoading,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<NotificationsCubit, NotificationsState>(
-      listenWhen: (previous, current) =>
-          previous.actionMessage != current.actionMessage,
+      listenWhen: (previous, current) => previous.actionMessage != current.actionMessage,
       listener: (context, state) {
         final message = state.actionMessage;
         if (message != null && message.isNotEmpty) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(message)));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
         }
       },
       builder: (context, state) {
+        // Local filtering
+        final filteredNotifications = state.notifications.where((n) {
+          if (_activeFilter == NotificationFilter.unread) {
+            return !n.leida;
+          }
+          return true;
+        }).toList();
+
+        // Chronological grouping
+        final groupedItems = <_GroupedNotificationItem>[];
+        String? lastGroup;
+
+        for (final notification in filteredNotifications) {
+          final group = _getDateGroup(notification.creadaEn);
+          if (group != lastGroup) {
+            groupedItems.add(_GroupedNotificationItem.header(group));
+            lastGroup = group;
+          }
+          groupedItems.add(_GroupedNotificationItem.notification(notification));
+        }
+
         return Scaffold(
           appBar: AppBar(
             title: const Text('Notificaciones'),
             actions: [
+              if (state.unreadCount > 0)
+                IconButton(
+                  tooltip: 'Marcar todas como leídas',
+                  onPressed: state.actionLoading
+                      ? null
+                      : () => context.read<NotificationsCubit>().markAllAsRead(),
+                  icon: const Icon(Icons.done_all_rounded),
+                ),
               IconButton(
                 tooltip: 'Actualizar',
                 onPressed: state.loading
                     ? null
-                    : () =>
-                          context.read<NotificationsCubit>().loadNotifications(),
+                    : () => context.read<NotificationsCubit>().loadNotifications(),
                 icon: const Icon(Icons.refresh_rounded),
+              ),
+              IconButton(
+                tooltip: 'Preferencias',
+                onPressed: () => _showPreferencesSheet(context, state),
+                icon: const Icon(Icons.tune_rounded),
               ),
             ],
           ),
           body: RefreshIndicator(
-            onRefresh: () =>
-                context.read<NotificationsCubit>().loadNotifications(),
-            child: CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(child: _HeaderCard(state: state)),
-                if (state.loading)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (state.errorMessage != null)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: _ErrorState(message: state.errorMessage!),
-                  )
-                else if (state.notifications.isEmpty)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: _EmptyState(),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                    sliver: SliverList.separated(
-                      itemBuilder: (context, index) {
-                        final notification = state.notifications[index];
-                        return _NotificationTile(notification: notification);
-                      },
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemCount: state.notifications.length,
-                    ),
-                  ),
-                SliverToBoxAdapter(
-                  child: _PreferencesSection(
-                    loading: state.preferencesLoading,
-                    preferences: state.preferences,
-                  ),
+            onRefresh: () => context.read<NotificationsCubit>().loadNotifications(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Compact Header and Local Filter Chips
+                _HeaderSummary(unreadCount: state.unreadCount),
+                _FilterChips(
+                  activeFilter: _activeFilter,
+                  onFilterChanged: (filter) {
+                    setState(() {
+                      _activeFilter = filter;
+                    });
+                  },
+                  unreadCount: state.unreadCount,
                 ),
-                const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                const SizedBox(height: 8),
+
+                // Main Feed
+                Expanded(
+                  child: state.loading
+                      ? ListView.builder(
+                          itemCount: 6,
+                          itemBuilder: (context, index) => const _NotificationTileSkeleton(),
+                        )
+                      : state.errorMessage != null
+                          ? _ErrorState(
+                              message: state.errorMessage!,
+                              onRetry: context.read<NotificationsCubit>().loadNotifications,
+                            )
+                          : filteredNotifications.isEmpty
+                              ? _EmptyState(
+                                  isFilteringUnread: _activeFilter == NotificationFilter.unread,
+                                )
+                              : ListView.builder(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  itemCount: groupedItems.length,
+                                  itemBuilder: (context, index) {
+                                    final item = groupedItems[index];
+                                    if (item.header != null) {
+                                      return _GroupHeader(title: item.header!);
+                                    } else {
+                                      return _NotificationTile(notification: item.notification!);
+                                    }
+                                  },
+                                ),
+                ),
               ],
             ),
           ),
@@ -101,63 +177,173 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 }
 
-class _HeaderCard extends StatelessWidget {
-  final NotificationsState state;
+enum NotificationFilter { all, unread }
 
-  const _HeaderCard({required this.state});
+class _GroupedNotificationItem {
+  final String? header;
+  final AppNotificationModel? notification;
+
+  _GroupedNotificationItem.header(this.header) : notification = null;
+  _GroupedNotificationItem.notification(this.notification) : header = null;
+}
+
+class _GroupHeader extends StatelessWidget {
+  final String title;
+
+  const _GroupHeader({required this.title});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        title.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.0,
+            ),
+      ),
+    );
+  }
+}
+
+class _HeaderSummary extends StatelessWidget {
+  final int unreadCount;
+
+  const _HeaderSummary({required this.unreadCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            unreadCount > 0 ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+            size: 16,
+            color: unreadCount > 0 ? AppColors.teal : AppColors.textSecondary,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            unreadCount == 0 ? 'Todo al día' : 'Tienes $unreadCount sin leer',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: unreadCount > 0 ? AppColors.navy : AppColors.textSecondary,
+                ),
+          ),
+          const SizedBox(width: 4),
+          if (unreadCount > 0)
+            Container(
+              width: 5,
+              height: 5,
+              decoration: const BoxDecoration(
+                color: AppColors.teal,
+                shape: BoxShape.circle,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChips extends StatelessWidget {
+  final NotificationFilter activeFilter;
+  final ValueChanged<NotificationFilter> onFilterChanged;
+  final int unreadCount;
+
+  const _FilterChips({
+    required this.activeFilter,
+    required this.onFilterChanged,
+    required this.unreadCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      child: Row(
+        children: [
+          _FilterChip(
+            label: 'Todas',
+            selected: activeFilter == NotificationFilter.all,
+            onTap: () => onFilterChanged(NotificationFilter.all),
+          ),
+          const SizedBox(width: 8),
+          _FilterChip(
+            label: 'Sin leer',
+            badgeCount: unreadCount > 0 ? unreadCount : null,
+            selected: activeFilter == NotificationFilter.unread,
+            onTap: () => onFilterChanged(NotificationFilter.unread),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final int? badgeCount;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    this.badgeCount,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.teal : AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? AppColors.teal : AppColors.lightGray,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? AppColors.white : AppColors.textSecondary,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+            if (badgeCount != null) ...[
+              const SizedBox(width: 6),
               Container(
-                width: 54,
-                height: 54,
+                padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
-                  color: AppColors.teal.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(18),
+                  color: selected ? AppColors.white : AppColors.teal,
+                  shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.notifications_active_outlined,
-                  color: AppColors.teal,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${state.unreadCount} sin leer',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                child: Center(
+                  child: Text(
+                    '$badgeCount',
+                    style: TextStyle(
+                      color: selected ? AppColors.teal : AppColors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Alertas de reportes, comentarios y avances comunitarios.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textSecondary,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              IconButton.filledTonal(
-                tooltip: 'Marcar todas como leidas',
-                onPressed: state.unreadCount == 0 || state.actionLoading
-                    ? null
-                    : () => context.read<NotificationsCubit>().markAllAsRead(),
-                icon: const Icon(Icons.done_all_rounded),
               ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -172,33 +358,48 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _typeColor(notification.codigoTipo);
+    final isUnread = !notification.leida;
 
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        color: isUnread ? AppColors.teal.withValues(alpha: 0.04) : AppColors.white,
+        border: Border(
+          bottom: BorderSide(
+            color: AppColors.lightGray.withValues(alpha: 0.5),
+            width: 1,
+          ),
+          left: BorderSide(
+            color: isUnread ? AppColors.teal : Colors.transparent,
+            width: 4,
+          ),
+        ),
+      ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(24),
         onTap: () {
-          if (!notification.leida) {
-            context.read<NotificationsCubit>().markAsRead(
-              notification.idNotificacion,
-            );
+          if (isUnread) {
+            context.read<NotificationsCubit>().markAsRead(notification.idNotificacion);
           }
           if (notification.idIncidencia.isNotEmpty) {
             context.push('/incidents/${notification.idIncidencia}');
           }
         },
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(_typeIcon(notification.codigoTipo), color: color),
+                child: Icon(
+                  _typeIcon(notification.codigoTipo),
+                  color: color,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -206,38 +407,42 @@ class _NotificationTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Text(
                             notification.titulo,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w900),
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: isUnread ? FontWeight.w900 : FontWeight.w600,
+                                  color: isUnread ? AppColors.navy : AppColors.textPrimary,
+                                ),
                           ),
                         ),
-                        if (!notification.leida)
+                        if (isUnread)
                           Container(
-                            width: 9,
-                            height: 9,
+                            margin: const EdgeInsets.only(left: 6, top: 4),
+                            width: 7,
+                            height: 7,
                             decoration: const BoxDecoration(
-                              color: AppColors.gold,
+                              color: AppColors.teal,
                               shape: BoxShape.circle,
                             ),
                           ),
                       ],
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 3),
                     Text(
                       notification.mensaje,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textSecondary,
-                        height: 1.35,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.textSecondary,
+                            height: 1.3,
+                          ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         _ChipLabel(
@@ -247,8 +452,10 @@ class _NotificationTile extends StatelessWidget {
                         const Spacer(),
                         Text(
                           _relativeDate(notification.creadaEn),
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: AppColors.textSecondary),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                              ),
                         ),
                       ],
                     ),
@@ -263,40 +470,60 @@ class _NotificationTile extends StatelessWidget {
   }
 }
 
-class _PreferencesSection extends StatelessWidget {
-  final bool loading;
+class _NotificationPreferencesSheet extends StatelessWidget {
   final List<NotificationPreferenceModel> preferences;
+  final bool loading;
 
-  const _PreferencesSection({required this.loading, required this.preferences});
+  const _NotificationPreferencesSheet({
+    required this.preferences,
+    required this.loading,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGray,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
               Text(
                 'Preferencias',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.navy,
+                    ),
               ),
               const SizedBox(height: 4),
               Text(
-                'Controla que avisos quieres recibir en este dispositivo.',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+                'Controla qué avisos quieres recibir en este dispositivo.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
               ),
               const SizedBox(height: 14),
               if (loading)
                 const Center(
                   child: Padding(
-                    padding: EdgeInsets.all(12),
+                    padding: EdgeInsets.all(24),
                     child: CircularProgressIndicator(),
                   ),
                 )
@@ -333,8 +560,7 @@ class _PreferenceSwitchState extends State<_PreferenceSwitch> {
   @override
   void didUpdateWidget(covariant _PreferenceSwitch oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.preference.radioCercaniaKm !=
-        widget.preference.radioCercaniaKm) {
+    if (oldWidget.preference.radioCercaniaKm != widget.preference.radioCercaniaKm) {
       _radio = _normalizeRadio(widget.preference.radioCercaniaKm);
     }
   }
@@ -354,21 +580,17 @@ class _PreferenceSwitchState extends State<_PreferenceSwitch> {
           value: preference.habilitada,
           title: Text(
             preference.nombreTipo,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
-          subtitle: isNearby
-              ? Text('Radio: ${_radio.toStringAsFixed(1)} km')
-              : null,
+          subtitle: isNearby ? Text('Radio: ${_radio.toStringAsFixed(1)} km') : null,
           onChanged: disabled
               ? null
               : (value) {
                   context.read<NotificationsCubit>().updatePreference(
-                    codigoTipo: preference.codigoTipo,
-                    habilitada: value,
-                    radioCercaniaKm: _radio,
-                  );
+                        codigoTipo: preference.codigoTipo,
+                        habilitada: value,
+                        radioCercaniaKm: _radio,
+                      );
                 },
         ),
         if (isNearby) ...[
@@ -384,10 +606,10 @@ class _PreferenceSwitchState extends State<_PreferenceSwitch> {
             onChangeEnd: preference.habilitada && !disabled
                 ? (value) {
                     context.read<NotificationsCubit>().updatePreference(
-                      codigoTipo: preference.codigoTipo,
-                      habilitada: preference.habilitada,
-                      radioCercaniaKm: value,
-                    );
+                          codigoTipo: preference.codigoTipo,
+                          habilitada: preference.habilitada,
+                          radioCercaniaKm: value,
+                        );
                   }
                 : null,
           ),
@@ -398,15 +620,15 @@ class _PreferenceSwitchState extends State<_PreferenceSwitch> {
                 Text(
                   '0.5 km',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
+                        color: AppColors.textSecondary,
+                      ),
                 ),
                 const Spacer(),
                 Text(
                   '20 km',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
+                        color: AppColors.textSecondary,
+                      ),
                 ),
               ],
             ),
@@ -416,9 +638,9 @@ class _PreferenceSwitchState extends State<_PreferenceSwitch> {
             child: Text(
               'Este rango se usa para el mapa y las alertas de incidencias cercanas.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textSecondary,
-                height: 1.3,
-              ),
+                    color: AppColors.textSecondary,
+                    height: 1.3,
+                  ),
             ),
           ),
         ],
@@ -448,16 +670,18 @@ class _ChipLabel extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w800,
-        ),
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
       ),
     );
   }
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  final bool isFilteringUnread;
+
+  const _EmptyState({required this.isFilteringUnread});
 
   @override
   Widget build(BuildContext context) {
@@ -466,26 +690,33 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.notifications_none_rounded,
-            size: 54,
-            color: AppColors.textSecondary,
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.teal.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.notifications_none_rounded,
+              size: 44,
+              color: AppColors.teal,
+            ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           Text(
-            'Aun no tienes notificaciones',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+            isFilteringUnread ? 'Sin notificaciones pendientes' : 'Aún no tienes notificaciones',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 6),
           Text(
-            'Cuando alguien comente, siga un cambio o haya una alerta relevante, aparecera aqui.',
+            isFilteringUnread
+                ? '¡Estás al día! No tienes notificaciones sin leer en este momento.'
+                : 'Cuando ocurra algo de tu interés, como comentarios o actualizaciones, lo verás aquí.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: AppColors.textSecondary,
-              height: 1.4,
-            ),
+                  color: AppColors.textSecondary,
+                  height: 1.4,
+                ),
           ),
         ],
       ),
@@ -495,8 +726,9 @@ class _EmptyState extends StatelessWidget {
 
 class _ErrorState extends StatelessWidget {
   final String message;
+  final VoidCallback onRetry;
 
-  const _ErrorState({required this.message});
+  const _ErrorState({required this.message, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -507,7 +739,7 @@ class _ErrorState extends StatelessWidget {
         children: [
           const Icon(
             Icons.cloud_off_rounded,
-            size: 54,
+            size: 44,
             color: AppColors.danger,
           ),
           const SizedBox(height: 14),
@@ -515,16 +747,93 @@ class _ErrorState extends StatelessWidget {
             message,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: AppColors.textSecondary,
-              height: 1.4,
-            ),
+                  color: AppColors.textSecondary,
+                  height: 1.4,
+                ),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
-            onPressed: () =>
-                context.read<NotificationsCubit>().loadNotifications(),
+            onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded),
             label: const Text('Reintentar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotificationTileSkeleton extends StatelessWidget {
+  const _NotificationTileSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        border: Border(
+          bottom: BorderSide(
+            color: AppColors.lightGray.withValues(alpha: 0.5),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.lightGray.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 140,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGray.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGray.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: AppColors.lightGray.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      width: 40,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: AppColors.lightGray.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),

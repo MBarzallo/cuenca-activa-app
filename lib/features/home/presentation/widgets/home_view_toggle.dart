@@ -40,7 +40,7 @@ class HomeViewToggle extends StatelessWidget {
             onTap: () => onChanged(HomeViewMode.map),
           ),
           _ToggleButton(
-            label: 'Listado',
+            label: 'Incidencias',
             icon: Icons.view_agenda_outlined,
             selected: value == HomeViewMode.list,
             onTap: () => onChanged(HomeViewMode.list),

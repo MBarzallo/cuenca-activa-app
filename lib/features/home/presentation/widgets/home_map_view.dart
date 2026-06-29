@@ -29,6 +29,7 @@ class _HomeMapViewState extends State<HomeMapView> {
   final MapController _mapController = MapController();
   _LocationStatus _locationStatus = _LocationStatus.initial;
   String? _locationMessage;
+  double _currentZoom = 13.0;
 
   @override
   void initState() {
@@ -140,6 +141,125 @@ class _HomeMapViewState extends State<HomeMapView> {
     );
   }
 
+  void _showClusterIncidents(List<IncidentModel> incidents) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: AppColors.background,
+      builder: (BuildContext sheetContext) {
+        return DraggableScrollableSheet(
+          initialChildSize: incidents.length > 3 ? 0.6 : 0.45,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (context, scrollController) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.teal.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.layers_rounded,
+                          color: AppColors.teal,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Incidencias en este punto (${incidents.length})',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.navy,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView.separated(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                    itemCount: incidents.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final incident = incidents[index];
+                      return _ClusterIncidentItem(
+                        incident: incident,
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _showIncident(incident);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  List<List<IncidentModel>> _groupNearbyIncidents(
+    List<IncidentModel> incidents,
+    double zoom,
+  ) {
+    final double maxDistance;
+    if (zoom <= 12) {
+      maxDistance = 100;
+    } else if (zoom <= 14) {
+      maxDistance = 60;
+    } else if (zoom <= 16) {
+      maxDistance = 30;
+    } else {
+      maxDistance = 10;
+    }
+
+    const distanceCalculator = Distance();
+    final List<List<IncidentModel>> groups = [];
+
+    for (final incident in incidents) {
+      final lat = incident.latitud;
+      final lng = incident.longitud;
+      if (lat == null || lng == null) continue;
+
+      final incidentLatLng = LatLng(lat, lng);
+      bool addedToGroup = false;
+
+      for (final group in groups) {
+        final repIncident = group.first;
+        final repLatLng = LatLng(repIncident.latitud!, repIncident.longitud!);
+        
+        final dist = distanceCalculator(incidentLatLng, repLatLng);
+        if (dist < maxDistance) {
+          group.add(incident);
+          addedToGroup = true;
+          break;
+        }
+      }
+
+      if (!addedToGroup) {
+        groups.add([incident]);
+      }
+    }
+
+    return groups;
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<IncidentsCubit, IncidentsState>(
@@ -159,17 +279,55 @@ class _HomeMapViewState extends State<HomeMapView> {
             .where((incident) => incident.longitud != null)
             .toList();
 
+        final groups = _groupNearbyIncidents(incidentsWithLocation, _currentZoom);
+
+        final markers = groups.map((list) {
+          final first = list.first;
+          final point = LatLng(first.latitud!, first.longitud!);
+
+          if (list.length == 1) {
+            return Marker(
+              point: point,
+              width: 58,
+              height: 68,
+              alignment: Alignment.topCenter,
+              child: _IncidentMarker(
+                incident: first,
+                onTap: () => _showIncident(first),
+              ),
+            );
+          } else {
+            return Marker(
+              point: point,
+              width: 60,
+              height: 70,
+              alignment: Alignment.topCenter,
+              child: _IncidentClusterMarker(
+                count: list.length,
+                onTap: () => _showClusterIncidents(list),
+              ),
+            );
+          }
+        }).toList();
+
         return Stack(
           fit: StackFit.expand,
           children: [
             FlutterMap(
               mapController: _mapController,
-              options: const MapOptions(
+              options: MapOptions(
                 initialCenter: _cuencaCenter,
                 initialZoom: 13,
                 minZoom: 11,
                 maxZoom: 18,
                 backgroundColor: AppColors.background,
+                onPositionChanged: (camera, hasGesture) {
+                  if (camera.zoom != _currentZoom) {
+                    setState(() {
+                      _currentZoom = camera.zoom;
+                    });
+                  }
+                },
               ),
               children: [
                 TileLayer(
@@ -193,33 +351,17 @@ class _HomeMapViewState extends State<HomeMapView> {
                     ),
                   ),
                 MarkerLayer(
-                  markers: incidentsWithLocation
-                      .map(
-                        (incident) => Marker(
-                          point: LatLng(incident.latitud!, incident.longitud!),
-                          width: 58,
-                          height: 68,
-                          alignment: Alignment.topCenter,
-                          child: _IncidentMarker(
-                            incident: incident,
-                            onTap: () => _showIncident(incident),
-                          ),
-                        ),
-                      )
-                      .toList(),
+                  markers: markers,
                 ),
               ],
             ),
             Positioned(
               top: 14,
               left: 16,
-              right: 16,
-              child: _MapSummaryCard(
+              child: _MapStatusChip(
                 loading: state.loading,
                 nearbyLoading: state.nearbyLoading,
                 errorMessage: state.errorMessage,
-                totalIncidents: state.incidents.length,
-                mappedIncidents: incidentsWithLocation.length,
                 locationMessage: _locationMessage,
                 onRetry: context.read<IncidentsCubit>().loadInitialData,
               ),
@@ -250,14 +392,6 @@ class _HomeMapViewState extends State<HomeMapView> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : null,
-                  ),
-                  const SizedBox(height: 10),
-                  _MapActionButton(
-                    tooltip: 'Reportar incidencia',
-                    icon: Icons.add_location_alt_rounded,
-                    color: AppColors.gold,
-                    foregroundColor: AppColors.navy,
-                    onPressed: () => context.go('/report-incident'),
                   ),
                 ],
               ),
@@ -329,105 +463,130 @@ class _IncidentMarker extends StatelessWidget {
   }
 }
 
-class _MapSummaryCard extends StatelessWidget {
+class _MapStatusChip extends StatelessWidget {
   final bool loading;
   final bool nearbyLoading;
   final String? errorMessage;
-  final int totalIncidents;
-  final int mappedIncidents;
   final String? locationMessage;
   final VoidCallback onRetry;
 
-  const _MapSummaryCard({
+  const _MapStatusChip({
     required this.loading,
     required this.nearbyLoading,
     required this.errorMessage,
-    required this.totalIncidents,
-    required this.mappedIncidents,
     required this.locationMessage,
     required this.onRetry,
   });
 
   @override
   Widget build(BuildContext context) {
-    final message =
-        errorMessage ??
-        locationMessage ??
-        '$mappedIncidents reportes dentro de tu radio preferido';
     final isLoading = loading || nearbyLoading;
+    final hasError = errorMessage != null;
+    final hasLocationMessage = locationMessage != null;
 
-    return DecoratedBox(
+    if (!isLoading && !hasError && !hasLocationMessage) {
+      return const SizedBox.shrink();
+    }
+
+    Widget icon;
+    String text;
+    Color textColor = AppColors.textPrimary;
+    Widget? action;
+
+    if (isLoading) {
+      icon = const SizedBox(
+        width: 14,
+        height: 14,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation<Color>(AppColors.teal),
+        ),
+      );
+      text = 'Cargando\nreportes...';
+    } else if (hasError) {
+      icon = const Icon(
+        Icons.error_outline_rounded,
+        color: AppColors.danger,
+        size: 16,
+      );
+      text = errorMessage!;
+      textColor = AppColors.danger;
+      action = GestureDetector(
+        onTap: onRetry,
+        child: Container(
+          margin: const EdgeInsets.only(left: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.danger.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.refresh_rounded, size: 12, color: AppColors.danger),
+              SizedBox(width: 4),
+              Text(
+                'Reintentar',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.danger,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      icon = const Icon(
+        Icons.location_on_outlined,
+        color: AppColors.teal,
+        size: 16,
+      );
+      text = locationMessage!;
+    }
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    // Evita solaparse con el view toggle flotante en el HomePage (der: 16, ancho: ~214)
+    final maxWidth = screenWidth - 260;
+
+    return Container(
+      constraints: BoxConstraints(maxWidth: maxWidth > 100 ? maxWidth : 100),
       decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.lightGray),
+        color: AppColors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.lightGray.withValues(alpha: 0.6)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.navy.withValues(alpha: 0.1),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
+            color: AppColors.navy.withValues(alpha: 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.teal.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: isLoading
-                  ? const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(
-                      errorMessage == null
-                          ? Icons.map_outlined
-                          : Icons.cloud_off_rounded,
-                      color: errorMessage == null
-                          ? AppColors.teal
-                          : AppColors.danger,
-                    ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Mapa ciudadano',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    totalIncidents == 0 && errorMessage == null && !isLoading
-                        ? 'No hay reportes dentro de tu radio por ahora.'
-                        : message,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          icon,
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
               ),
             ),
-            if (errorMessage != null)
-              IconButton(
-                tooltip: 'Reintentar',
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded),
-              ),
-          ],
-        ),
+          ),
+          // ignore: use_null_aware_elements
+          if (action != null) action,
+        ],
       ),
     );
   }
@@ -437,18 +596,17 @@ class _MapActionButton extends StatelessWidget {
   final String tooltip;
   final IconData? icon;
   final Widget? child;
-  final Color color;
-  final Color foregroundColor;
   final VoidCallback? onPressed;
 
   const _MapActionButton({
     required this.tooltip,
     required this.icon,
     this.child,
-    this.color = AppColors.white,
-    this.foregroundColor = AppColors.teal,
     required this.onPressed,
   });
+
+  Color get color => AppColors.white;
+  Color get foregroundColor => AppColors.teal;
 
   @override
   Widget build(BuildContext context) {
@@ -524,6 +682,176 @@ class _MapEmptyCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IncidentClusterMarker extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+
+  const _IncidentClusterMarker({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                top: 4,
+                left: 4,
+                child: Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.teal.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+              ),
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: AppColors.navy,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppColors.white, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.navy.withValues(alpha: 0.25),
+                      blurRadius: 14,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.layers_rounded,
+                        color: AppColors.gold,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        '$count',
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Container(
+            width: 12,
+            height: 12,
+            transform: Matrix4.translationValues(0, -3, 0)..rotateZ(0.785398),
+            decoration: const BoxDecoration(
+              color: AppColors.navy,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClusterIncidentItem extends StatelessWidget {
+  final IncidentModel incident;
+  final VoidCallback onTap;
+
+  const _ClusterIncidentItem({
+    required this.incident,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppColors.lightGray, width: 1),
+      ),
+      color: AppColors.white,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              IncidentCategoryIcon(
+                category: incident.nombreCategoria,
+                size: 40,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      incident.titulo.isEmpty
+                          ? 'Incidencia sin título'
+                          : incident.titulo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.navy,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      incident.descripcion.isEmpty
+                          ? 'Sin descripción disponible'
+                          : incident.descripcion,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.teal.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  incident.nombreEstado,
+                  style: const TextStyle(
+                    color: AppColors.teal,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textSecondary,
+                size: 20,
+              ),
+            ],
+          ),
         ),
       ),
     );

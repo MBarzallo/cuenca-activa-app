@@ -1,148 +1,235 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../incidents/data/incident_model.dart';
 
-class WelcomeHeader extends StatelessWidget {
-  final String name;
-  final String alias;
-  final int points;
-  final String levelName;
-  final double levelProgress;
-  final int pointsToNextLevel;
+class IncidentCard extends StatelessWidget {
+  final IncidentModel incident;
+  final VoidCallback? onTap;
 
-  const WelcomeHeader({
-    super.key,
-    required this.name,
-    required this.alias,
-    required this.points,
-    required this.levelName,
-    required this.levelProgress,
-    required this.pointsToNextLevel,
-  });
+  const IncidentCard({super.key, required this.incident, this.onTap});
+
+  String _relativeDate(DateTime? date) {
+    if (date == null) {
+      return '';
+    }
+
+    final diff = DateTime.now().difference(date.toLocal());
+    if (diff.inMinutes < 1) {
+      return 'Ahora';
+    }
+    if (diff.inHours < 1) {
+      return '${diff.inMinutes} min';
+    }
+    if (diff.inDays < 1) {
+      return '${diff.inHours} h';
+    }
+    if (diff.inDays < 2) {
+      return 'Ayer';
+    }
+    if (diff.inDays < 7) {
+      return '${diff.inDays} d';
+    }
+
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
+  }
+
+  Color _colorForStatus(String code) {
+    final normalized = code.toUpperCase();
+    if (normalized.contains('CERR') ||
+        normalized.contains('FINAL') ||
+        normalized.contains('RESUEL') ||
+        normalized.contains('SOLUCION')) {
+      return AppColors.success;
+    }
+    if (normalized.contains('PROCESO') ||
+        normalized.contains('TRAB') ||
+        normalized.contains('ASIG')) {
+      return AppColors.gold;
+    }
+    return AppColors.teal;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.navy,
-        borderRadius: BorderRadius.circular(24),
+    final hasImage = incident.imagenes.isNotEmpty;
+    final categoryColor = _colorForCategory(incident.nombreCategoria);
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: AppColors.lightGray.withValues(alpha: 0.6)),
       ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              IncidentCategoryIcon(
+                category: incident.nombreCategoria,
+                size: 38,
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        Text(
+                          incident.nombreCategoria,
+                          style: TextStyle(
+                            color: categoryColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          width: 3,
+                          height: 3,
+                          decoration: const BoxDecoration(
+                            color: AppColors.textSecondary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _relativeDate(incident.fechaReporte),
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
                     Text(
-                      'Hola, ${name.isEmpty ? 'ciudadano' : name}',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            color: AppColors.white,
-                            fontWeight: FontWeight.w900,
+                      incident.titulo.isEmpty ? 'Incidencia sin título' : incident.titulo,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.navy,
+                            fontWeight: FontWeight.bold,
                           ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 2),
                     Text(
-                      alias.isEmpty ? 'Perfil ciudadano' : '@$alias',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.white.withValues(alpha: 0.75),
-                      ),
+                      incident.descripcion,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _CompactStatusChip(
+                          label: incident.nombreEstado,
+                          color: _colorForStatus(incident.codigoEstado),
+                        ),
+                        if (incident.cantidadConfirmaciones > 0)
+                          _CompactMetricChip(
+                            icon: Icons.check_circle_outline_rounded,
+                            label: '${incident.cantidadConfirmaciones}',
+                            color: AppColors.success,
+                          ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  color: AppColors.gold,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(
-                  Icons.location_city_rounded,
-                  color: AppColors.navy,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.white.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: AppColors.white.withValues(alpha: 0.12),
-              ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.stars_rounded, color: AppColors.gold),
+              if (hasImage) ...[
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$points puntos · $levelName',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              color: AppColors.white,
-                              fontWeight: FontWeight.w800,
-                            ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CachedNetworkImage(
+                    imageUrl: incident.imagenes.first,
+                    width: 62,
+                    height: 62,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      color: AppColors.lightGray.withValues(alpha: 0.5),
+                    ),
+                    errorWidget: (context, url, error) => Container(
+                      color: AppColors.lightGray.withValues(alpha: 0.5),
+                      child: const Icon(
+                        Icons.broken_image_outlined,
+                        size: 16,
+                        color: AppColors.textSecondary,
                       ),
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          value: levelProgress,
-                          minHeight: 7,
-                          backgroundColor: AppColors.white.withValues(
-                            alpha: 0.12,
-                          ),
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                            AppColors.gold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        pointsToNextLevel == 0
-                            ? 'Nivel máximo alcanzado'
-                            : '$pointsToNextLevel puntos para el siguiente nivel',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.white.withValues(alpha: 0.7),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.gold.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    levelName.isEmpty ? 'Nivel' : levelName,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: AppColors.gold,
-                      fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _colorForCategory(String value) {
+    final normalized = value.toLowerCase();
+    if (normalized.contains('agua') || normalized.contains('alcantar')) {
+      return const Color(0xFF0284C7);
+    }
+    if (normalized.contains('luz') || normalized.contains('eléctr')) {
+      return AppColors.gold;
+    }
+    if (normalized.contains('basura') || normalized.contains('residuo')) {
+      return const Color(0xFF16A34A);
+    }
+    if (normalized.contains('seguridad')) {
+      return const Color(0xFF7C3AED);
+    }
+    return AppColors.teal;
+  }
+}
+
+class _CompactStatusChip extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _CompactStatusChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 10,
             ),
           ),
         ],
@@ -151,93 +238,35 @@ class WelcomeHeader extends StatelessWidget {
   }
 }
 
-class IncidentCard extends StatelessWidget {
-  final IncidentModel incident;
-  final VoidCallback? onTap;
+class _CompactMetricChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
 
-  const IncidentCard({super.key, required this.incident, this.onTap});
+  const _CompactMetricChip({required this.icon, required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final date = incident.fechaReporte;
-    final formattedDate = date == null
-        ? 'Fecha no disponible'
-        : DateFormat('dd MMM yyyy, HH:mm').format(date.toLocal());
-
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  IncidentCategoryIcon(category: incident.nombreCategoria),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          incident.titulo.isEmpty
-                              ? 'Incidencia sin titulo'
-                              : incident.titulo,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          incident.nombreCategoria,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: AppColors.textSecondary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                incident.descripcion,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  StatusChip(
-                    icon: Icons.flag_rounded,
-                    label: incident.nombreEstado,
-                    color: AppColors.teal,
-                  ),
-                  StatusChip(
-                    icon: Icons.check_circle_outline_rounded,
-                    label: '${incident.cantidadConfirmaciones} confirmaciones',
-                    color: AppColors.success,
-                  ),
-                  StatusChip(
-                    icon: Icons.schedule_rounded,
-                    label: formattedDate,
-                    color: AppColors.textSecondary,
-                  ),
-                ],
-              ),
-            ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 10,
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -346,9 +375,9 @@ class StatusChip extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w800,
-            ),
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                ),
           ),
         ],
       ),
@@ -363,16 +392,85 @@ class IncidentLoadingList extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: List.generate(
-        3,
+        4,
         (index) => Container(
-          height: 132,
-          margin: EdgeInsets.only(bottom: index == 2 ? 0 : 12),
+          height: 100,
+          margin: EdgeInsets.only(bottom: index == 3 ? 0 : 12),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: AppColors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.lightGray),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.lightGray.withValues(alpha: 0.5)),
           ),
-          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.lightGray.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: AppColors.lightGray.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: AppColors.lightGray.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      width: 180,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: AppColors.lightGray.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Container(
+                          width: 50,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: AppColors.lightGray.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          width: 30,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: AppColors.lightGray.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -397,40 +495,57 @@ class HomeInfoState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          children: [
-            Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(
-                color: AppColors.teal.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(18),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.lightGray.withValues(alpha: 0.6)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.teal.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: AppColors.teal, size: 28),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.navy,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  height: 1.35,
+                ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: onAction,
+            style: FilledButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon, color: AppColors.teal),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             ),
-            const SizedBox(height: 14),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            child: Text(
+              actionLabel,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
             ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 18),
-            FilledButton(onPressed: onAction, child: Text(actionLabel)),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

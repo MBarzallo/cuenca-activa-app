@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:cuenca_activa_app/features/auth/presentation/login_page.dart';
 import 'package:cuenca_activa_app/features/auth/presentation/register_page.dart';
 import 'package:cuenca_activa_app/features/auth/presentation/welcome_page.dart';
+import 'package:cuenca_activa_app/features/auth/presentation/splash_page.dart';
 import 'package:cuenca_activa_app/features/home/presentation/home_page.dart';
 import 'package:cuenca_activa_app/features/incidents/presentation/incident_detail_page.dart';
 import 'package:cuenca_activa_app/features/incidents/presentation/my_reports_page.dart';
@@ -13,17 +14,24 @@ import 'package:cuenca_activa_app/features/main/presentation/main_scaffold.dart'
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 final GlobalKey<NavigatorState> _homeNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'home');
-final GlobalKey<NavigatorState> _reportNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'report');
 final GlobalKey<NavigatorState> _myReportsNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'myReports');
 final GlobalKey<NavigatorState> _profileNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'profile');
 
 class AppRouter {
   static final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
-    initialLocation: '/',
+    initialLocation: '/splash',
     routes: [
       GoRoute(
         path: "/",
+        redirect: (context, state) => '/splash',
+      ),
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashPage(),
+      ),
+      GoRoute(
+        path: '/welcome',
         builder: (context, state) => const WelcomePage(),
       ),
       GoRoute(
@@ -51,15 +59,6 @@ class AppRouter {
             ],
           ),
           StatefulShellBranch(
-            navigatorKey: _reportNavigatorKey,
-            routes: [
-              GoRoute(
-                path: '/report-incident',
-                builder: (context, state) => const ReportIncidentPage(),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
             navigatorKey: _myReportsNavigatorKey,
             routes: [
               GoRoute(
@@ -81,6 +80,11 @@ class AppRouter {
       ),
       
       // Sub-routes pushed on top of the root navigator (full screen pages)
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/report-incident',
+        builder: (context, state) => const ReportIncidentPage(),
+      ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/incidents/:id',
