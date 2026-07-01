@@ -7,6 +7,9 @@ class MultimediaModel {
   final String contentType;
   final int sizeBytes;
   final String nombreArchivo;
+  final String estadoRevision;
+  final bool visiblePublicamente;
+  final String motivoRevision;
 
   const MultimediaModel({
     required this.idMultimedia,
@@ -17,6 +20,9 @@ class MultimediaModel {
     required this.contentType,
     required this.sizeBytes,
     required this.nombreArchivo,
+    required this.estadoRevision,
+    required this.visiblePublicamente,
+    required this.motivoRevision,
   });
 
   factory MultimediaModel.fromJson(Map<String, dynamic> json) {
@@ -29,6 +35,9 @@ class MultimediaModel {
       contentType: json['contentType']?.toString() ?? '',
       sizeBytes: _toInt(json['sizeBytes']),
       nombreArchivo: json['nombreArchivo']?.toString() ?? '',
+      estadoRevision: json['estadoRevision']?.toString() ?? '',
+      visiblePublicamente: json['visiblePublicamente'] == true,
+      motivoRevision: json['motivoRevision']?.toString() ?? '',
     );
   }
 

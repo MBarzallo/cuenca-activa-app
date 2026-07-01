@@ -156,9 +156,11 @@ class IncidentsRepository {
   Future<List<MultimediaModel>> getIncidentMultimedia(
     String idIncidencia,
   ) async {
+    final token = await _getOptionalIdToken();
     final response = await _safeRequest(() {
       return _dioClient.get<List<dynamic>>(
         '/api/incidencias/$idIncidencia/multimedia',
+        token: token,
       );
     });
 
@@ -717,6 +719,16 @@ class IncidentsRepository {
     }
 
     return token;
+  }
+
+  Future<String?> _getOptionalIdToken() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return null;
+    try {
+      return await user.getIdToken();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<IncidentRelatedModel>> getRelatedIncidents(

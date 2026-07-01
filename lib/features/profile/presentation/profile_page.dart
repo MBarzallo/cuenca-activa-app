@@ -844,7 +844,7 @@ class _ProfilePersonalInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final displayPhone = telefonoVerificado 
         ? telefono 
-        : ((telefonoPendiente ?? '').isEmpty ? 'No registrado' : '$telefonoPendiente (pendiente)');
+        : ((telefonoPendiente ?? '').isEmpty ? 'No registrado' : '$telefonoPendiente\n(pendiente)');
 
     return Card(
       elevation: 0,
@@ -1611,6 +1611,7 @@ class _VerifyPhoneSheetState extends State<_VerifyPhoneSheet> {
                             return 'Ingresa un celular válido de Ecuador (ej: 0998765432).';
                           }
                         }
+                        print('Normalized phone: ${_normalizarTelefono(val)}');
                         return null;
                       },
                     ),

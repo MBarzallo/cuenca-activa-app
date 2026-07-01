@@ -35,53 +35,146 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _showPasswordResetDialog() async {
-    final resetController = TextEditingController(text: emailController.text);
     final resetFormKey = GlobalKey<FormState>();
+    String resetEmail = emailController.text.trim();
 
     await showDialog<void>(
       context: context,
+      barrierDismissible: true,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Recuperar contraseña'),
-          content: Form(
-            key: resetFormKey,
-            child: TextFormField(
-              controller: resetController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Correo electrónico',
-                prefixIcon: Icon(Icons.email_outlined),
+        final theme = Theme.of(dialogContext);
+        final colorScheme = theme.colorScheme;
+
+        void submitReset() {
+          if (!resetFormKey.currentState!.validate()) {
+            return;
+          }
+
+          final email = resetEmail.trim();
+
+          Navigator.of(dialogContext).pop();
+
+          context.read<AuthCubit>().sendPasswordResetEmail(email);
+        }
+
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(dialogContext).viewInsets.bottom,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
+              child: Form(
+                key: resetFormKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer.withOpacity(0.8),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.lock_reset_rounded,
+                        size: 34,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    Text(
+                      'Recuperar contraseña',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      'Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        height: 1.35,
+                      ),
+                    ),
+
+                    const SizedBox(height: 22),
+
+                    TextFormField(
+                      initialValue: resetEmail,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.done,
+                      validator: _emailValidator,
+                      onChanged: (value) {
+                        resetEmail = value;
+                      },
+                      onFieldSubmitted: (_) => submitReset(),
+                      decoration: InputDecoration(
+                        labelText: 'Correo electrónico',
+                        hintText: 'ejemplo@correo.com',
+                        prefixIcon: const Icon(Icons.email_outlined),
+                        filled: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              Navigator.of(dialogContext).pop();
+                            },
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: const Text('Cancelar'),
+                          ),
+                        ),
+
+                        const SizedBox(width: 12),
+
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: submitReset,
+                            icon: const Icon(Icons.send_rounded, size: 18),
+                            label: const Text('Enviar'),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              validator: _emailValidator,
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (!resetFormKey.currentState!.validate()) {
-                  return;
-                }
-
-                Navigator.of(dialogContext).pop();
-                context.read<AuthCubit>().sendPasswordResetEmail(
-                  resetController.text,
-                );
-              },
-              child: const Text('Enviar'),
-            ),
-          ],
         );
       },
     );
-
-    resetController.dispose();
   }
-
   @override
   void dispose() {
     emailController.dispose();

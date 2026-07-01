@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -123,6 +124,57 @@ class _IncidentDetailContent extends StatefulWidget {
 
 class _IncidentDetailContentState extends State<_IncidentDetailContent> {
   int _activeTab = 0;
+  Timer? _pollingTimer;
+  int _pollingTicks = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAndStartPolling();
+  }
+
+  @override
+  void didUpdateWidget(covariant _IncidentDetailContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _checkAndStartPolling();
+  }
+
+  @override
+  void dispose() {
+    _pollingTimer?.cancel();
+    super.dispose();
+  }
+
+  void _checkAndStartPolling() {
+    final authState = context.read<AuthCubit>().state;
+    final currentUserId = authState is AuthAuthenticated
+        ? authState.user.idUsuario
+        : '';
+    final isOwner =
+        currentUserId.isNotEmpty && currentUserId == widget.incident.idUsuarioReporta;
+
+    final hasPending = widget.multimedia.any((media) => 
+        media.estadoRevision == 'PENDIENTE' || media.estadoRevision == 'PENDIENTE_REVISION');
+
+    if (isOwner && hasPending) {
+      if (_pollingTimer == null) {
+        _pollingTicks = 0;
+        _pollingTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+          _pollingTicks++;
+          if (_pollingTicks >= 4) {
+            timer.cancel();
+            _pollingTimer = null;
+          }
+          if (mounted) {
+            context.read<IncidentsCubit>().loadIncidentDetail(widget.incident.idIncidencia);
+          }
+        });
+      }
+    } else {
+      _pollingTimer?.cancel();
+      _pollingTimer = null;
+    }
+  }
 
   void _showVoteSheet(BuildContext context) {
     showModalBottomSheet<void>(
@@ -354,11 +406,17 @@ class _IncidentDetailContentState extends State<_IncidentDetailContent> {
             ],
           ),
           body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                _ImageGallery(images: widget.incident.imagenes, multimedia: widget.multimedia),
-                const SizedBox(height: 12),
+            child: RefreshIndicator(
+              onRefresh: () => context
+                  .read<IncidentsCubit>()
+                  .loadIncidentDetail(widget.incident.idIncidencia),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  _ImageGallery(images: widget.incident.imagenes, multimedia: widget.multimedia),
+                  if (isOwner) MultimediaReviewNotice(multimedia: widget.multimedia),
+                  const SizedBox(height: 12),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -479,7 +537,8 @@ class _IncidentDetailContentState extends State<_IncidentDetailContent> {
               ],
             ),
           ),
-          bottomNavigationBar: bottomBar,
+        ),
+        bottomNavigationBar: bottomBar,
         );
       },
     );
@@ -533,7 +592,7 @@ class _ImageGallery extends StatelessWidget {
     }
 
     final mediaItems = multimedia
-        .where((media) => media.downloadUrl.isNotEmpty)
+        .where((media) => media.downloadUrl.isNotEmpty && media.visiblePublicamente)
         .toList();
     final itemCount = mediaItems.isNotEmpty ? mediaItems.length : images.length;
 
@@ -3995,6 +4054,101 @@ class _QuickActionChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       visualDensity: VisualDensity.compact,
+    );
+  }
+}
+
+class MultimediaReviewNotice extends StatelessWidget {
+  final List<MultimediaModel> multimedia;
+
+  const MultimediaReviewNotice({super.key, required this.multimedia});
+
+  @override
+  Widget build(BuildContext context) {
+    if (multimedia.isEmpty) return const SizedBox.shrink();
+
+    final hasRejected = multimedia.any((media) => media.estadoRevision == 'RECHAZADO');
+    final hasError = multimedia.any((media) => media.estadoRevision == 'ERROR_REVISION');
+    final hasManual = multimedia.any((media) => media.estadoRevision == 'REVISION_MANUAL');
+    final hasPending = multimedia.any((media) => media.estadoRevision == 'PENDIENTE' || media.estadoRevision == 'PENDIENTE_REVISION');
+
+    // Prioritized messages
+    final String title;
+    final String message;
+    final IconData icon;
+    final Color color;
+    final Color bgColor;
+    final Color borderColor;
+
+    if (hasRejected) {
+      title = 'Algunas imágenes no fueron publicadas';
+      message = 'Una o más imágenes no se visualizarán porque el sistema detectó contenido que no cumple con las políticas de publicación.';
+      icon = Icons.remove_circle_outline_rounded;
+      color = AppColors.danger;
+      bgColor = AppColors.danger.withValues(alpha: 0.06);
+      borderColor = AppColors.danger.withValues(alpha: 0.18);
+    } else if (hasError) {
+      title = 'No se pudo revisar la imagen';
+      message = 'Hubo un problema técnico al revisar una o más imágenes. El sistema intentará procesarlas nuevamente.';
+      icon = Icons.error_outline_rounded;
+      color = AppColors.danger;
+      bgColor = AppColors.danger.withValues(alpha: 0.06);
+      borderColor = AppColors.danger.withValues(alpha: 0.18);
+    } else if (hasManual) {
+      title = 'Revisión manual pendiente';
+      message = 'Tus imágenes necesitan una revisión adicional antes de mostrarse públicamente. Esto puede pasar si el sistema no pudo confirmar completamente el contexto de la imagen.';
+      icon = Icons.visibility_off_outlined;
+      color = AppColors.gold;
+      bgColor = AppColors.gold.withValues(alpha: 0.06);
+      borderColor = AppColors.gold.withValues(alpha: 0.18);
+    } else if (hasPending) {
+      title = 'Imágenes en revisión';
+      message = 'Tus imágenes se están revisando automáticamente. En unos minutos se visualizarán si no contienen contenido sensible.';
+      icon = Icons.hourglass_empty_rounded;
+      color = AppColors.teal;
+      bgColor = AppColors.teal.withValues(alpha: 0.06);
+      borderColor = AppColors.teal.withValues(alpha: 0.18);
+    } else {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: 1),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AppColors.navy,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.3,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

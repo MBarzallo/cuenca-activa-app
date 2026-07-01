@@ -245,6 +245,7 @@ class IncidentsCubit extends Cubit<IncidentsState> {
           ? await _repository.getIncidentStatuses()
           : state.statusOptions;
       final imageUrls = multimedia
+          .where((media) => media.visiblePublicamente)
           .map((media) => media.downloadUrl)
           .where((url) => url.isNotEmpty)
           .toList();
