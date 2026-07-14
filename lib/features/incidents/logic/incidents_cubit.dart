@@ -176,6 +176,16 @@ class IncidentsCubit extends Cubit<IncidentsState> {
         ),
       );
     } on ApiException catch (error) {
+      if (error.code == 'INCIDENCIA_CREADA_EVIDENCIA_FALLIDA') {
+        emit(
+          state.copyWith(
+            submitStatus: IncidentSubmitStatus.partial,
+            submitMessage: error.message,
+          ),
+        );
+        return;
+      }
+
       emit(
         state.copyWith(
           submitStatus: IncidentSubmitStatus.failure,
@@ -302,11 +312,28 @@ class IncidentsCubit extends Cubit<IncidentsState> {
     emit(state.copyWith(relatedLoading: true, clearRelatedError: true));
     try {
       final related = await _repository.getRelatedIncidents(idIncidencia);
-      emit(state.copyWith(relatedLoading: false, relatedIncidents: related, clearRelatedError: true));
+      emit(
+        state.copyWith(
+          relatedLoading: false,
+          relatedIncidents: related,
+          clearRelatedError: true,
+        ),
+      );
     } on ApiException catch (error) {
-      emit(state.copyWith(relatedLoading: false, relatedErrorMessage: error.message));
+      emit(
+        state.copyWith(
+          relatedLoading: false,
+          relatedErrorMessage: error.message,
+        ),
+      );
     } catch (_) {
-      emit(state.copyWith(relatedLoading: false, relatedErrorMessage: 'No se pudieron cargar las incidencias relacionadas.'));
+      emit(
+        state.copyWith(
+          relatedLoading: false,
+          relatedErrorMessage:
+              'No se pudieron cargar las incidencias relacionadas.',
+        ),
+      );
     }
   }
 
@@ -315,19 +342,39 @@ class IncidentsCubit extends Cubit<IncidentsState> {
     required String idIncidenciaRelacionada,
     required String tipoRelacion,
   }) async {
-    emit(state.copyWith(submitStatus: IncidentSubmitStatus.loading, clearSubmitMessage: true));
+    emit(
+      state.copyWith(
+        submitStatus: IncidentSubmitStatus.loading,
+        clearSubmitMessage: true,
+      ),
+    );
     try {
       await _repository.relateIncident(
         idIncidencia: idIncidencia,
         idIncidenciaRelacionada: idIncidenciaRelacionada,
         tipoRelacion: tipoRelacion,
       );
-      emit(state.copyWith(submitStatus: IncidentSubmitStatus.success, submitMessage: 'Relación agregada exitosamente.'));
+      emit(
+        state.copyWith(
+          submitStatus: IncidentSubmitStatus.success,
+          submitMessage: 'Relación agregada exitosamente.',
+        ),
+      );
       await refreshRelatedIncidents(idIncidencia);
     } on ApiException catch (error) {
-      emit(state.copyWith(submitStatus: IncidentSubmitStatus.failure, submitMessage: error.message));
+      emit(
+        state.copyWith(
+          submitStatus: IncidentSubmitStatus.failure,
+          submitMessage: error.message,
+        ),
+      );
     } catch (_) {
-      emit(state.copyWith(submitStatus: IncidentSubmitStatus.failure, submitMessage: 'No se pudo agregar la relación.'));
+      emit(
+        state.copyWith(
+          submitStatus: IncidentSubmitStatus.failure,
+          submitMessage: 'No se pudo agregar la relación.',
+        ),
+      );
     }
   }
 

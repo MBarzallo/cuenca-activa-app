@@ -464,11 +464,34 @@ class IncidentsRepository {
       return incident;
     }
 
-    final multimedia = await _uploadAndRegisterImage(
-      token: token,
-      incident: incident,
-      attachment: imageAttachment,
-    );
+    final MultimediaModel multimedia;
+    try {
+      multimedia = await _uploadAndRegisterImage(
+        token: token,
+        incident: incident,
+        attachment: imageAttachment,
+      );
+    } on ApiException catch (error) {
+      throw ApiException(
+        statusCode: error.statusCode,
+        code: 'INCIDENCIA_CREADA_EVIDENCIA_FALLIDA',
+        message:
+            'La incidencia fue creada, pero no se pudo adjuntar la imagen. Revisa el reporte en Mis reportes.',
+        body: {
+          ...?error.body,
+          'idIncidencia': incident.idIncidencia,
+          'originalCode': error.code,
+        },
+      );
+    } catch (_) {
+      throw ApiException(
+        statusCode: 500,
+        code: 'INCIDENCIA_CREADA_EVIDENCIA_FALLIDA',
+        message:
+            'La incidencia fue creada, pero no se pudo adjuntar la imagen. Revisa el reporte en Mis reportes.',
+        body: {'idIncidencia': incident.idIncidencia},
+      );
+    }
 
     return incident.copyWith(imagenes: [multimedia.downloadUrl]);
   }

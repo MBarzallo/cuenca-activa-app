@@ -20,7 +20,8 @@ class CuencaActivaApp extends StatelessWidget {
     return MultiBlocProvider(
       providers: [
         BlocProvider(
-          create: (_) => AuthCubit(AuthRepository())..checkSession(), 
+          create: (_) => AuthCubit(AuthRepository())..checkSession(),
+
         ),
         BlocProvider(create: (_) => IncidentsCubit(IncidentsRepository())),
         BlocProvider(

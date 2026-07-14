@@ -23,23 +23,44 @@ class HomeMapView extends StatefulWidget {
   State<HomeMapView> createState() => _HomeMapViewState();
 }
 
-class _HomeMapViewState extends State<HomeMapView> {
+class _HomeMapViewState extends State<HomeMapView> with WidgetsBindingObserver {
   static const _cuencaCenter = LatLng(-2.90055, -79.00453);
 
   final MapController _mapController = MapController();
   _LocationStatus _locationStatus = _LocationStatus.initial;
   String? _locationMessage;
   double _currentZoom = 13.0;
+  bool _dismissedLocationWarning = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _centerOnUserLocation(silent: true);
     });
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _centerOnUserLocation(silent: true);
+    }
+  }
+
   Future<void> _centerOnUserLocation({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _dismissedLocationWarning = false;
+      });
+    }
+
     setState(() {
       _locationStatus = _LocationStatus.loading;
       _locationMessage = null;
@@ -91,6 +112,7 @@ class _HomeMapViewState extends State<HomeMapView> {
 
       setState(() {
         _locationStatus = _LocationStatus.ready;
+        _dismissedLocationWarning = false;
       });
       _mapController.move(point, 15);
       if (mounted) {
@@ -130,6 +152,14 @@ class _HomeMapViewState extends State<HomeMapView> {
         ),
       ),
     );
+  }
+
+  void _handleLocationWarningAction() {
+    if (_locationStatus == _LocationStatus.serviceDisabled) {
+      Geolocator.openLocationSettings();
+    } else {
+      openAppSettings();
+    }
   }
 
   void _showIncident(IncidentModel incident) {
@@ -396,7 +426,20 @@ class _HomeMapViewState extends State<HomeMapView> {
                 ],
               ),
             ),
-            if (!state.loading &&
+            if ((_locationStatus == _LocationStatus.denied ||
+                    _locationStatus == _LocationStatus.serviceDisabled) &&
+                !_dismissedLocationWarning)
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 92,
+                child: _LocationWarningCard(
+                  status: _locationStatus,
+                  onActionPressed: _handleLocationWarningAction,
+                  onDismiss: () => setState(() => _dismissedLocationWarning = true),
+                ),
+              )
+            else if (!state.loading &&
                 state.errorMessage == null &&
                 incidentsWithLocation.isEmpty)
               Positioned(
@@ -852,6 +895,138 @@ class _ClusterIncidentItem extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationWarningCard extends StatelessWidget {
+  final _LocationStatus status;
+  final VoidCallback onActionPressed;
+  final VoidCallback onDismiss;
+
+  const _LocationWarningCard({
+    required this.status,
+    required this.onActionPressed,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isServiceDisabled = status == _LocationStatus.serviceDisabled;
+    final title = isServiceDisabled ? 'Ubicación desactivada' : 'Permiso de ubicación requerido';
+    final description = isServiceDisabled
+        ? 'Para mostrar los reportes en el mapa y usar tu posición actual, por favor activa el GPS de tu dispositivo.'
+        : 'CuencaActiva necesita acceso a tu ubicación para centrar el mapa y mostrar incidencias cercanas.';
+    final buttonText = isServiceDisabled ? 'Activar GPS' : 'Habilitar en Ajustes';
+    final icon = isServiceDisabled ? Icons.location_off_rounded : Icons.location_disabled_rounded;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      elevation: 6,
+      shadowColor: AppColors.navy.withValues(alpha: 0.15),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: AppColors.danger.withValues(alpha: 0.2), width: 1.5),
+      ),
+      child: Container(
+        color: AppColors.white,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: AppColors.danger,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.navy,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.textSecondary,
+                              height: 1.3,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: onDismiss,
+                  child: const Icon(
+                    Icons.close_rounded,
+                    color: AppColors.textSecondary,
+                    size: 20,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: onDismiss,
+                    child: const Text(
+                      'Explorar sin ubicación',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.teal,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: onActionPressed,
+                    child: Text(
+                      buttonText,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

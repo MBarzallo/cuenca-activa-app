@@ -265,9 +265,7 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
               child: const Text('Seguir editando'),
             ),
             TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.danger,
-              ),
+              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('Descartar'),
             ),
@@ -379,18 +377,15 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
                   'Verificación de celular requerida',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.navy,
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.navy,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 const Text(
                   'Para registrar reportes ciudadanos en Cuenca Activa, debes contar con un número celular verificado mediante SMS. Esto garantiza la seriedad y veracidad de cada reporte.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    height: 1.5,
-                  ),
+                  style: TextStyle(color: AppColors.textSecondary, height: 1.5),
                 ),
                 const SizedBox(height: 32),
                 SizedBox(
@@ -421,17 +416,26 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
       builder: (showcaseContext) {
         return BlocConsumer<IncidentsCubit, IncidentsState>(
           listener: (context, state) {
-            if (state.submitStatus == IncidentSubmitStatus.success) {
+            if (state.submitStatus == IncidentSubmitStatus.success ||
+                state.submitStatus == IncidentSubmitStatus.partial) {
               setState(() {
-                _submitSuccess = true;
+                _submitSuccess =
+                    state.submitStatus == IncidentSubmitStatus.success;
               });
 
               final cubit = context.read<IncidentsCubit>();
               final router = GoRouter.of(context);
 
-              Future<void>.delayed(const Duration(milliseconds: 1000)).then((_) {
+              Future<void>.delayed(const Duration(milliseconds: 1000)).then((
+                _,
+              ) {
                 if (!mounted) return;
-                _showMessage(state.submitMessage ?? 'Incidencia reportada.');
+                _showMessage(
+                  state.submitMessage ??
+                      (state.submitStatus == IncidentSubmitStatus.partial
+                          ? 'La incidencia fue creada, pero falta revisar la imagen.'
+                          : 'Incidencia reportada.'),
+                );
                 _clearForm();
                 cubit.resetSubmitStatus();
                 setState(() {
@@ -482,12 +486,12 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
                   title: const Text('Nuevo reporte'),
                   actions: [
                     TextButton(
-                      onPressed: submitting ? null : () => _handleClear(submitting),
+                      onPressed: submitting
+                          ? null
+                          : () => _handleClear(submitting),
                       child: const Text(
                         'Limpiar',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
                     IconButton(
@@ -632,42 +636,45 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
                     ),
                   ),
                 ),
-              bottomNavigationBar: Container(
-                decoration: BoxDecoration(
-                  color: AppColors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.navy.withValues(alpha: 0.06),
-                      blurRadius: 10,
-                      offset: const Offset(0, -4),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    child: AppShowcaseStep(
-                      showcaseKey: _submitKey,
-                      title: 'Enviar y seguir',
-                      description:
-                          'Cuando todo esté listo, envía el reporte. Luego aparecerá en Mis reportes para consultar su estado.',
-                      child: _AnimatedSubmitButton(
-                        submitting: submitting,
-                        success: _submitSuccess,
-                        locating: _locating,
-                        onPressed: _submit,
+                bottomNavigationBar: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.navy.withValues(alpha: 0.06),
+                        blurRadius: 10,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      child: AppShowcaseStep(
+                        showcaseKey: _submitKey,
+                        title: 'Enviar y seguir',
+                        description:
+                            'Cuando todo esté listo, envía el reporte. Luego aparecerá en Mis reportes para consultar su estado.',
+                        child: _AnimatedSubmitButton(
+                          submitting: submitting,
+                          success: _submitSuccess,
+                          locating: _locating,
+                          onPressed: _submit,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
-      );
-    },
-  );
-}
+            );
+          },
+        );
+      },
+    );
+  }
 
   String? _requiredValidator(String? value) {
     if (value == null || value.trim().isEmpty) {
@@ -677,8 +684,6 @@ class _ReportIncidentPageState extends State<ReportIncidentPage> {
     return null;
   }
 }
-
-
 
 class _LoadingCategoriesCard extends StatelessWidget {
   const _LoadingCategoriesCard();
@@ -733,7 +738,7 @@ class _LocationCaptureCard extends StatelessWidget {
         : hasProblem
         ? AppColors.danger
         : AppColors.teal;
-    
+
     final title = hasLocation
         ? 'Ubicación capturada'
         : locating
@@ -773,14 +778,16 @@ class _LocationCaptureCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: Theme.of(context).textTheme.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       if (hasLocation) ...[
                         const SizedBox(height: 2),
                         Text(
                           '${currentPosition.latitude.toStringAsFixed(5)}, ${currentPosition.longitude.toStringAsFixed(5)}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
                                 color: AppColors.textSecondary,
                                 fontSize: 10,
                               ),
@@ -788,8 +795,10 @@ class _LocationCaptureCard extends StatelessWidget {
                       ] else ...[
                         const SizedBox(height: 2),
                         Text(
-                          message ?? 'Ubicaremos el reporte automáticamente con tu GPS.',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          message ??
+                              'Ubicaremos el reporte automáticamente con tu GPS.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
                                 color: AppColors.textSecondary,
                                 height: 1.25,
                               ),
@@ -814,7 +823,10 @@ class _LocationCaptureCard extends StatelessWidget {
                     children: [
                       FlutterMap(
                         options: MapOptions(
-                          initialCenter: LatLng(currentPosition.latitude, currentPosition.longitude),
+                          initialCenter: LatLng(
+                            currentPosition.latitude,
+                            currentPosition.longitude,
+                          ),
                           initialZoom: 15,
                           minZoom: 10,
                           maxZoom: 18,
@@ -824,13 +836,18 @@ class _LocationCaptureCard extends StatelessWidget {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.example.cuenca_activa_app',
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName:
+                                'com.example.cuenca_activa_app',
                           ),
                           MarkerLayer(
                             markers: [
                               Marker(
-                                point: LatLng(currentPosition.latitude, currentPosition.longitude),
+                                point: LatLng(
+                                  currentPosition.latitude,
+                                  currentPosition.longitude,
+                                ),
                                 width: 32,
                                 height: 32,
                                 alignment: Alignment.center,
@@ -875,7 +892,10 @@ class _LocationCaptureCard extends StatelessWidget {
                                       height: 16,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.teal),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              AppColors.teal,
+                                            ),
                                       ),
                                     )
                                   : const Icon(
@@ -903,7 +923,10 @@ class _LocationCaptureCard extends StatelessWidget {
                 labelText: 'Dirección referencial',
                 hintText: 'Ej. Frente al parque, casa color verde...',
                 prefixIcon: Icon(Icons.info_outline_rounded),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
               ),
             ),
             if (!hasLocation) ...[
@@ -914,7 +937,10 @@ class _LocationCaptureCard extends StatelessWidget {
                   children: [
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -935,7 +961,10 @@ class _LocationCaptureCard extends StatelessWidget {
                     const SizedBox(width: 12),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -946,7 +975,10 @@ class _LocationCaptureCard extends StatelessWidget {
                               await onOpenSettings();
                             },
                       icon: const Icon(Icons.settings_outlined, size: 16),
-                      label: const Text('Ajustes', style: TextStyle(fontSize: 12)),
+                      label: const Text(
+                        'Ajustes',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                   ],
                 )
@@ -954,7 +986,10 @@ class _LocationCaptureCard extends StatelessWidget {
                 Center(
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -966,13 +1001,18 @@ class _LocationCaptureCard extends StatelessWidget {
                             height: 14,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
                             ),
                           )
                         : const Icon(Icons.gps_fixed_rounded, size: 16),
                     label: Text(
                       locating ? 'Obteniendo...' : 'Obtener ubicación',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -1034,8 +1074,9 @@ class _ImagePickerCard extends StatelessWidget {
                     children: [
                       Text(
                         'Imagen del reporte',
-                        style: Theme.of(context).textTheme.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -1061,7 +1102,10 @@ class _ImagePickerCard extends StatelessWidget {
                       ),
                       onPressed: disabled ? null : onCamera,
                       icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                      label: const Text('Cámara', style: TextStyle(fontSize: 13)),
+                      label: const Text(
+                        'Cámara',
+                        style: TextStyle(fontSize: 13),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1072,7 +1116,10 @@ class _ImagePickerCard extends StatelessWidget {
                       ),
                       onPressed: disabled ? null : onGallery,
                       icon: const Icon(Icons.photo_library_outlined, size: 18),
-                      label: const Text('Galería', style: TextStyle(fontSize: 13)),
+                      label: const Text(
+                        'Galería',
+                        style: TextStyle(fontSize: 13),
+                      ),
                     ),
                   ),
                 ],
@@ -1100,7 +1147,10 @@ class _ImagePickerCard extends StatelessWidget {
                                 style: IconButton.styleFrom(
                                   backgroundColor: Colors.black54,
                                 ),
-                                icon: const Icon(Icons.close, color: Colors.white),
+                                icon: const Icon(
+                                  Icons.close,
+                                  color: Colors.white,
+                                ),
                                 onPressed: () => Navigator.pop(context),
                               ),
                             ],
@@ -1117,10 +1167,7 @@ class _ImagePickerCard extends StatelessWidget {
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(15),
-                        child: Image.memory(
-                          bytes,
-                          fit: BoxFit.cover,
-                        ),
+                        child: Image.memory(bytes, fit: BoxFit.cover),
                       ),
                     ),
                   ),
@@ -1132,7 +1179,8 @@ class _ImagePickerCard extends StatelessWidget {
                           image.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
                                 color: AppColors.textSecondary,
                                 fontStyle: FontStyle.italic,
                               ),
@@ -1146,7 +1194,10 @@ class _ImagePickerCard extends StatelessWidget {
                         ),
                         onPressed: disabled ? null : onCamera,
                         icon: const Icon(Icons.cached_rounded, size: 16),
-                        label: const Text('Cambiar', style: TextStyle(fontSize: 12)),
+                        label: const Text(
+                          'Cambiar',
+                          style: TextStyle(fontSize: 12),
+                        ),
                       ),
                       TextButton.icon(
                         style: TextButton.styleFrom(
@@ -1155,8 +1206,14 @@ class _ImagePickerCard extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
                         onPressed: disabled ? null : onClear,
-                        icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                        label: const Text('Quitar', style: TextStyle(fontSize: 12)),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 16,
+                        ),
+                        label: const Text(
+                          'Quitar',
+                          style: TextStyle(fontSize: 12),
+                        ),
                       ),
                     ],
                   ),
@@ -1310,41 +1367,41 @@ class _AnimatedSubmitButtonState extends State<_AnimatedSubmitButton>
                             size: 20,
                           )
                         : widget.submitting
-                            ? AnimatedBuilder(
-                                animation: _flightAnimation,
-                                builder: (context, child) {
-                                  final double progress = _flightAnimation.value;
-                                  final double opacity = progress < 0.1
-                                      ? progress / 0.1
-                                      : progress > 0.8
-                                          ? (1.0 - progress) / 0.2
-                                          : 1.0;
+                        ? AnimatedBuilder(
+                            animation: _flightAnimation,
+                            builder: (context, child) {
+                              final double progress = _flightAnimation.value;
+                              final double opacity = progress < 0.1
+                                  ? progress / 0.1
+                                  : progress > 0.8
+                                  ? (1.0 - progress) / 0.2
+                                  : 1.0;
 
-                                  return Transform.translate(
-                                    offset: Offset(
-                                      30.0 * progress - 10.0,
-                                      -15.0 * progress + 5.0,
+                              return Transform.translate(
+                                offset: Offset(
+                                  30.0 * progress - 10.0,
+                                  -15.0 * progress + 5.0,
+                                ),
+                                child: Transform.rotate(
+                                  angle: -0.3,
+                                  child: Opacity(
+                                    opacity: opacity.clamp(0.0, 1.0),
+                                    child: const Icon(
+                                      Icons.send_rounded,
+                                      color: AppColors.white,
+                                      size: 18,
                                     ),
-                                    child: Transform.rotate(
-                                      angle: -0.3,
-                                      child: Opacity(
-                                        opacity: opacity.clamp(0.0, 1.0),
-                                        child: const Icon(
-                                          Icons.send_rounded,
-                                          color: AppColors.white,
-                                          size: 18,
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              )
-                            : const Icon(
-                                Icons.send_rounded,
-                                key: ValueKey('normal-icon'),
-                                color: AppColors.white,
-                                size: 18,
-                              ),
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : const Icon(
+                            Icons.send_rounded,
+                            key: ValueKey('normal-icon'),
+                            color: AppColors.white,
+                            size: 18,
+                          ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1354,18 +1411,18 @@ class _AnimatedSubmitButtonState extends State<_AnimatedSubmitButton>
                     widget.success
                         ? 'Reporte enviado'
                         : widget.submitting
-                            ? 'Enviando reporte...'
-                            : widget.locating
-                                ? 'Obteniendo ubicación...'
-                                : 'Enviar reporte',
+                        ? 'Enviando reporte...'
+                        : widget.locating
+                        ? 'Obteniendo ubicación...'
+                        : 'Enviar reporte',
                     key: ValueKey(
                       widget.success
                           ? 'success-text'
                           : widget.submitting
-                              ? 'submitting-text'
-                              : widget.locating
-                                  ? 'locating-text'
-                                  : 'normal-text',
+                          ? 'submitting-text'
+                          : widget.locating
+                          ? 'locating-text'
+                          : 'normal-text',
                     ),
                     style: const TextStyle(
                       color: AppColors.white,
@@ -1382,4 +1439,3 @@ class _AnimatedSubmitButtonState extends State<_AnimatedSubmitButton>
     );
   }
 }
-

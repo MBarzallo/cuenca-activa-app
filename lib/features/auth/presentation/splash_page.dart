@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../logic/auth_cubit.dart';
@@ -19,8 +20,17 @@ class _SplashPageState extends State<SplashPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkCurrentState();
+      _initAppFlow();
     });
+  }
+
+  Future<void> _initAppFlow() async {
+    try {
+      await Permission.locationWhenInUse.request();
+    } catch (e) {
+      debugPrint('Error requesting location permission on startup: $e');
+    }
+    _checkCurrentState();
   }
 
   void _checkCurrentState() {

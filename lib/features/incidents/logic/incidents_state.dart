@@ -11,7 +11,7 @@ import '../data/incident_vote_model.dart';
 import '../data/multimedia_model.dart';
 import '../data/incident_related_model.dart';
 
-enum IncidentSubmitStatus { initial, loading, success, failure }
+enum IncidentSubmitStatus { initial, loading, success, partial, failure }
 
 class IncidentsState extends Equatable {
   final bool loading;
@@ -328,7 +328,9 @@ class IncidentsState extends Equatable {
           : myReportsErrorMessage ?? this.myReportsErrorMessage,
       relatedLoading: relatedLoading ?? this.relatedLoading,
       relatedIncidents: relatedIncidents ?? this.relatedIncidents,
-      relatedErrorMessage: clearRelatedError ? null : relatedErrorMessage ?? this.relatedErrorMessage,
+      relatedErrorMessage: clearRelatedError
+          ? null
+          : relatedErrorMessage ?? this.relatedErrorMessage,
     );
   }
 
