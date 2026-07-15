@@ -8,7 +8,10 @@ import '../data/incidents_repository.dart';
 import 'incidents_state.dart';
 
 class IncidentsCubit extends Cubit<IncidentsState> {
+  static const _locationUpdateMinInterval = Duration(minutes: 5);
+
   final IncidentsRepository _repository;
+  DateTime? _lastLocationUpdateAt;
 
   IncidentsCubit(this._repository) : super(const IncidentsState.initial());
 
@@ -64,7 +67,6 @@ class IncidentsCubit extends Cubit<IncidentsState> {
   Future<void> loadNearbyPreferredIncidents({
     required double latitud,
     required double longitud,
-    bool notifyNearby = false,
   }) async {
     emit(
       state.copyWith(
@@ -75,27 +77,20 @@ class IncidentsCubit extends Cubit<IncidentsState> {
     );
 
     try {
+      await _updateLastKnownLocationIfNeeded(
+        latitud: latitud,
+        longitud: longitud,
+      );
+
       final incidents = await _repository.getNearbyPreferredIncidents(
         latitud: latitud,
         longitud: longitud,
       );
 
-      String? message;
-      if (notifyNearby) {
-        final total = await _repository.notifyNearbyIncidents(
-          latitud: latitud,
-          longitud: longitud,
-        );
-        message = total > 0
-            ? 'Te avisamos sobre $total reportes cercanos.'
-            : 'No hay nuevas alertas cercanas por ahora.';
-      }
-
       emit(
         state.copyWith(
           nearbyLoading: false,
           incidents: incidents,
-          nearbyMessage: message,
           clearError: true,
         ),
       );
@@ -108,6 +103,28 @@ class IncidentsCubit extends Cubit<IncidentsState> {
           errorMessage: 'No se pudieron cargar las incidencias cercanas.',
         ),
       );
+    }
+  }
+
+  Future<void> _updateLastKnownLocationIfNeeded({
+    required double latitud,
+    required double longitud,
+  }) async {
+    final now = DateTime.now();
+    final lastUpdateAt = _lastLocationUpdateAt;
+    if (lastUpdateAt != null &&
+        now.difference(lastUpdateAt) < _locationUpdateMinInterval) {
+      return;
+    }
+
+    try {
+      await _repository.updateLastKnownLocation(
+        latitud: latitud,
+        longitud: longitud,
+      );
+      _lastLocationUpdateAt = now;
+    } catch (_) {
+      // La ubicación remota no debe bloquear el mapa ni la navegación.
     }
   }
 

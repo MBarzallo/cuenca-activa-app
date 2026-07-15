@@ -119,7 +119,6 @@ class _HomeMapViewState extends State<HomeMapView> with WidgetsBindingObserver {
         await context.read<IncidentsCubit>().loadNearbyPreferredIncidents(
           latitud: position.latitude,
           longitud: position.longitude,
-          notifyNearby: !silent,
         );
       }
     } catch (_) {
@@ -206,9 +205,7 @@ class _HomeMapViewState extends State<HomeMapView> with WidgetsBindingObserver {
                       const SizedBox(width: 12),
                       Text(
                         'Incidencias en este punto (${incidents.length})',
-                        style: Theme.of(sheetContext)
-                            .textTheme
-                            .titleMedium
+                        style: Theme.of(sheetContext).textTheme.titleMedium
                             ?.copyWith(
                               fontWeight: FontWeight.w900,
                               color: AppColors.navy,
@@ -273,7 +270,7 @@ class _HomeMapViewState extends State<HomeMapView> with WidgetsBindingObserver {
       for (final group in groups) {
         final repIncident = group.first;
         final repLatLng = LatLng(repIncident.latitud!, repIncident.longitud!);
-        
+
         final dist = distanceCalculator(incidentLatLng, repLatLng);
         if (dist < maxDistance) {
           group.add(incident);
@@ -309,7 +306,10 @@ class _HomeMapViewState extends State<HomeMapView> with WidgetsBindingObserver {
             .where((incident) => incident.longitud != null)
             .toList();
 
-        final groups = _groupNearbyIncidents(incidentsWithLocation, _currentZoom);
+        final groups = _groupNearbyIncidents(
+          incidentsWithLocation,
+          _currentZoom,
+        );
 
         final markers = groups.map((list) {
           final first = list.first;
@@ -380,9 +380,7 @@ class _HomeMapViewState extends State<HomeMapView> with WidgetsBindingObserver {
                       headingSectorColor: Color(0x661FA99A),
                     ),
                   ),
-                MarkerLayer(
-                  markers: markers,
-                ),
+                MarkerLayer(markers: markers),
               ],
             ),
             Positioned(
@@ -436,7 +434,8 @@ class _HomeMapViewState extends State<HomeMapView> with WidgetsBindingObserver {
                 child: _LocationWarningCard(
                   status: _locationStatus,
                   onActionPressed: _handleLocationWarningAction,
-                  onDismiss: () => setState(() => _dismissedLocationWarning = true),
+                  onDismiss: () =>
+                      setState(() => _dismissedLocationWarning = true),
                 ),
               )
             else if (!state.loading &&
@@ -801,9 +800,7 @@ class _IncidentClusterMarker extends StatelessWidget {
             width: 12,
             height: 12,
             transform: Matrix4.translationValues(0, -3, 0)..rotateZ(0.785398),
-            decoration: const BoxDecoration(
-              color: AppColors.navy,
-            ),
+            decoration: const BoxDecoration(color: AppColors.navy),
           ),
         ],
       ),
@@ -815,10 +812,7 @@ class _ClusterIncidentItem extends StatelessWidget {
   final IncidentModel incident;
   final VoidCallback onTap;
 
-  const _ClusterIncidentItem({
-    required this.incident,
-    required this.onTap,
-  });
+  const _ClusterIncidentItem({required this.incident, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -853,9 +847,9 @@ class _ClusterIncidentItem extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.navy,
-                          ),
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.navy,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -865,8 +859,8 @@ class _ClusterIncidentItem extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -915,12 +909,18 @@ class _LocationWarningCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isServiceDisabled = status == _LocationStatus.serviceDisabled;
-    final title = isServiceDisabled ? 'Ubicación desactivada' : 'Permiso de ubicación requerido';
+    final title = isServiceDisabled
+        ? 'Ubicación desactivada'
+        : 'Permiso de ubicación requerido';
     final description = isServiceDisabled
         ? 'Para mostrar los reportes en el mapa y usar tu posición actual, por favor activa el GPS de tu dispositivo.'
         : 'CuencaActiva necesita acceso a tu ubicación para centrar el mapa y mostrar incidencias cercanas.';
-    final buttonText = isServiceDisabled ? 'Activar GPS' : 'Habilitar en Ajustes';
-    final icon = isServiceDisabled ? Icons.location_off_rounded : Icons.location_disabled_rounded;
+    final buttonText = isServiceDisabled
+        ? 'Activar GPS'
+        : 'Habilitar en Ajustes';
+    final icon = isServiceDisabled
+        ? Icons.location_off_rounded
+        : Icons.location_disabled_rounded;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -928,7 +928,10 @@ class _LocationWarningCard extends StatelessWidget {
       shadowColor: AppColors.navy.withValues(alpha: 0.15),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: AppColors.danger.withValues(alpha: 0.2), width: 1.5),
+        side: BorderSide(
+          color: AppColors.danger.withValues(alpha: 0.2),
+          width: 1.5,
+        ),
       ),
       child: Container(
         color: AppColors.white,
@@ -945,11 +948,7 @@ class _LocationWarningCard extends StatelessWidget {
                     color: AppColors.danger.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(
-                    icon,
-                    color: AppColors.danger,
-                    size: 24,
-                  ),
+                  child: Icon(icon, color: AppColors.danger, size: 24),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -958,7 +957,8 @@ class _LocationWarningCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                               fontWeight: FontWeight.bold,
                               color: AppColors.navy,
                             ),
@@ -967,9 +967,9 @@ class _LocationWarningCard extends StatelessWidget {
                       Text(
                         description,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.textSecondary,
-                              height: 1.3,
-                            ),
+                          color: AppColors.textSecondary,
+                          height: 1.3,
+                        ),
                       ),
                     ],
                   ),
@@ -1020,7 +1020,10 @@ class _LocationWarningCard extends StatelessWidget {
                     onPressed: onActionPressed,
                     child: Text(
                       buttonText,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),

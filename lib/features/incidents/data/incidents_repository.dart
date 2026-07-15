@@ -103,25 +103,18 @@ class IncidentsRepository {
         .toList();
   }
 
-  Future<int> notifyNearbyIncidents({
+  Future<void> updateLastKnownLocation({
     required double latitud,
     required double longitud,
   }) async {
     final token = await _getIdToken();
-    final response = await _safeRequest(() {
-      return _dioClient.post<Map<String, dynamic>>(
-        '/api/incidencias/cercanas/notificaciones',
+    await _safeRequest(() {
+      return _dioClient.put<Map<String, dynamic>>(
+        '/api/usuarios/me/ubicacion',
         token: token,
-        queryParameters: {'latitud': latitud, 'longitud': longitud},
+        data: {'latitud': latitud, 'longitud': longitud},
       );
     });
-
-    final total = response.data?['totalNotificaciones'];
-    if (total is num) {
-      return total.toInt();
-    }
-
-    return int.tryParse(total?.toString() ?? '') ?? 0;
   }
 
   Future<List<IncidentModel>> getMyIncidents({
